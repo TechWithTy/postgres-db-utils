@@ -27,8 +27,8 @@ async def check_db_health() -> bool:
 async def check_cache_health() -> bool:
     """Verify Redis cache connection health"""
     try:
-        redis_client = redis.from_url(settings.REDIS_URL)
-        await redis_client.ping()
+        client = redis.from_url(settings.REDIS_URL)
+        await client.ping()
         return True
     except Exception as e:
         logger.error(f"Cache health check failed: {str(e)}")
