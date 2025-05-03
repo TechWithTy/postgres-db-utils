@@ -1,0 +1,80 @@
+graph TD
+    A["Start: Function Call (e.g., fetch_sensitive_user_data)"] --> B{"Check Secure Env?"};
+
+    subgraph Env & Connection Setup
+        B -- OK --> C["Get Connection from Pool<br/><i>(pool.py, db_config.py)</i>"];
+        B -- Fail --> Z_ERR["End: Config Error"];
+        C --> D["Record Pool Metric Start<br/><i>(@with_pool_metrics)</i>"];
+    end
+
+    subgraph Retry & Optimization Loop
+        D --> E{"Retry Attempt < Max?"};
+        E -- Yes --> F{"Check Redis Cache?<br/><i>(@with_query_optimization)</i>"};
+        E -- No (Max Retries) --> G["Handle Max Retries Error"];
+
+        F -- Yes (HIT) --> H["Get Result from Cache (Redis)"];
+        F -- No (MISS) --> I{"Check Circuit Breaker?<br/><i>(@with_query_optimization, pool.py)</i>"};
+
+        I -- Open --> J["Fail Fast / Fallback<br/>(Circuit Open)"];
+        I -- Closed/Half-Open --> K["Encrypt Query Params<br/><i>(@with_encrypted_parameters, encryption.py)</i>"];
+
+        K --> L["Execute Core DB Function Logic"];
+        L --> M(("Execute Query on DB"));
+
+        M -- Success --> N["Decrypt Result Fields<br/><i>(@with_encrypted_parameters)</i>"];
+        M -- DB Error --> O["Handle DB Error"];
+
+        N --> P["Store Result in Cache (Redis)<br/><i>(@with_query_optimization)</i>"];
+        P --> Q["Record Success Metrics<br/><i>(Query & Pool - Prometheus)</i>"];
+        Q --> R["Exit Retry Loop (Success)"];
+
+        J --> S["Record Circuit Open Metric"];
+        O --> S;
+        S --> T{"Increment Retry Counter"};
+        T --> E;
+
+        G --> R_ERR["Exit Retry Loop (Failure)"];
+    end
+
+    subgraph Result & Cleanup
+        H --> R_Success["Format Cached Result"];
+        R --> R_Success["Format DB Result"];
+
+        R_Success --> U["Release Connection to Pool<br/><i>(@with_engine_connection)</i>"];
+        U --> V["Return Success Result"];
+        V --> Z_OK["End: Success"];
+
+        R_ERR --> U_ERR["Release Connection to Pool<br/><i>(@with_engine_connection)</i>"];
+        U_ERR --> V_ERR["Return Error Response"];
+        V_ERR --> Z_ERR;
+    end
+
+    subgraph External Systems Involved
+      DB[("Database")];
+      Cache[("Redis Cache")];
+      Metrics[("Prometheus")];
+    end
+
+    M --> DB;
+    F --> Cache;
+    H --> Cache;
+    P --> Cache;
+    D --> Metrics;
+    Q --> Metrics;
+    S --> Metrics;
+
+    classDef process fill:#D6EAF8,stroke:#333,stroke-width:1px,color:#333333;
+    classDef decision fill:#FCF3CF,stroke:#333,stroke-width:1px,color:#333333;
+    classDef io fill:#E8DAEF,stroke:#333,stroke-width:1px,color:#333333;
+    classDef error fill:#FADBD8,stroke:#C0392B,stroke-width:1px,color:#333333;
+    classDef success fill:#D5F5E3,stroke:#27AE60,stroke-width:1px,color:#333333;
+    classDef external fill:#E5E7E9,stroke:#888,stroke-width:1px,color:#333333;
+    classDef startend fill:#FFFFFF,stroke:#333,stroke-width:2px,color:#333333;
+
+    class A,Z_OK,Z_ERR startend;
+    class C,D,G,H,K,L,N,P,Q,S,T,U,V,U_ERR,V_ERR,R_Success process;
+    class B,E,F,I decision;
+    class M io;
+    class J,O,R_ERR error;
+    class R success;
+    class DB,Cache,Metrics external;
