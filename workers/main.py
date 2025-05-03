@@ -186,7 +186,7 @@ def circuit_breaker_decorator(
 
 
 # --- I/O Worker Utility ---
-from app.core.db_utils.workers._schema import IOTaskConfig
+from app.core.db_utils.workers._schemas import IOTaskConfig
 
 
 def run_io_task_with_best_practices(
@@ -281,7 +281,7 @@ def run_io_task_with_best_practices(
 
 
 # --- DB Worker Utility ---
-from app.core.db_utils.workers._schema import DBTaskConfig
+from app.core.db_utils.workers._schemas import DBTaskConfig
 
 
 def run_db_task_with_best_practices(
@@ -376,7 +376,7 @@ def run_db_task_with_best_practices(
 
 
 # --- CPU Worker Utility ---
-from app.core.db_utils.workers._schema import CPUTaskConfig
+from app.core.db_utils.workers._schemas import CPUTaskConfig
 
 
 def run_cpu_task_with_best_practices(

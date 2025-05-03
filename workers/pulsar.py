@@ -27,7 +27,7 @@ from app.core.db_utils.exceptions.exceptions import (
     ServiceTimeoutError,
     log_and_raise_http_exception,
 )
-from app.core.db_utils.workers._schema import (
+from app.core.db_utils.workers._schemas import (
     PulsarCPUTaskConfig,
     PulsarDBTaskConfig,
     PulsarIOTaskConfig,
