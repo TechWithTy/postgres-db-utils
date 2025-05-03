@@ -24,7 +24,20 @@ url = get_db_url()
 **Example:**
 ```python
 from app.core.db_utils.db_optimizations import QueryOptimizer
+# MyModel = SQLAlchemy model, query_params = dict of query filters, db_session = async session
 result = await QueryOptimizer.optimized_query(MyModel, query_params, db_session)
+```
+
+**FastAPI Dependency Example:**
+```python
+from app.core.db_utils.db_optimizations import OptimizedQuerySetMixin
+from fastapi import Depends
+
+class MyQuerySet(OptimizedQuerySetMixin, MyModel):
+    ...
+
+def get_queryset(db=Depends(get_db)):
+    return MyQuerySet(db)
 ```
 
 ---
@@ -57,6 +70,7 @@ from app.core.db_utils.decorators import (
     with_pool_metrics, with_secure_environment, with_encrypted_parameters
 )
 
+# Typical order: Load environment first, then get a connection, then apply optimizations/retries to the operation using that connection.
 @with_secure_environment
 @with_engine_connection
 @retry_decorator(max_retries=5)
@@ -73,6 +87,7 @@ async def fetch_sensitive_user_data(...):
 ## 5. Encryption (`encryption.py`)
 - Use `DataEncryptor` for Fernet-based encryption/decryption, key rotation, and metrics.
 - Used automatically by `@with_encrypted_parameters`.
+- **Key Source:** Uses the `SECRET_KEY` from `settings` by default for encryption.
 
 **Example:**
 ```python
@@ -93,6 +108,7 @@ decrypted = cipher.decrypt_data(encrypted)
 ## 7. Connection Pooling (`pool.py`)
 - Implements async connection pool with circuit breaker, Prometheus metrics, and health validation.
 - Use `ConnectionPool` for robust, monitored DB sessions.
+- **Note:** Developers typically do not interact with `ConnectionPool` directly; it is primarily managed internally by decorators like `@with_engine_connection`.
 
 ---
 
@@ -107,10 +123,13 @@ load_environment_files()
 
 ---
 
-## Best Practices
-- Always compose decorators for robust, DRY, and secure DB operations.
-- Use Prometheus metrics and logs for monitoring and troubleshooting.
-- Prefer atomic, idempotent queries and handle all exceptions with custom error classes provided.
-- Secure all sensitive data with encryption and environment validation.
+## 9. Best Practices
+- Always use `get_password_hash` for storing user passwords.
+- Use `verify_password` to check passwords, which automatically rate limits attempts.
+- Use `create_access_token` for issuing JWTs; this is also rate limited to prevent abuse.
+- Handle `HTTPException` for rate limit errors in your API endpoints.
+- Store `SECRET_KEY` securely and rotate periodically.
+- Tune rate limits for your threat model and user base.
+- **Database Transactions:** Use database transactions (`async with session.begin():`) for operations that need atomicity. While decorators may handle sessions, explicit transaction management is still recommended for critical business logic.
 
 For more details, see the code and docstrings in each file.
