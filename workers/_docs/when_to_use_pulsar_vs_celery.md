@@ -1,101 +1,82 @@
-# When to Use Pulsar Worker Functions vs. Basic Redis & Celery
+# When to Use Valkey + Celery vs. Valkey + Celery + Pulsar
 
 ## Overview
 
-This document explains the scenarios where you should use the Pulsar-based worker utilities (`run_io_task_with_best_practices_pulsar`, etc.) instead of traditional Celery + Redis-based workers in this codebase. It provides guidance for engineers on choosing the right tool for distributed task processing, with a focus on scalability, reliability, and production best practices.
+This document provides guidance on selecting the right distributed task processing stack for your use case:
+- **Valkey + Celery** (classic, reliable, Python-centric)
+- **Valkey + Celery + Pulsar** (scalable, streaming, multi-language, advanced)
 
 ---
 
-## What the Celery/Redis Worker Utilities Provide
+## 1. Valkey + Celery
 
-The `main.py` worker utilities in this repo are:
-- **Production-grade wrappers for Celery tasks** that enforce best practices for I/O, DB, and CPU workloads.
-- **Decorator Stack:** Each worker utility composes decorators for:
-    - Tracing and logging
-    - Error handling
-    - Performance measurement
-    - Circuit breaking (via tenacity)
-    - Caching (Redis)
-    - Rate limiting (per-user/service)
-    - Credits deduction and authentication (JWT, API key, OAuth2, MFA, or none)
-- **Async/Sync Support:** Handles both async and sync task functions, so you can use with modern FastAPI endpoints or legacy code.
-- **Result Handling:** Uses Redis as the result backend, with polling and idempotency support for robust status tracking.
-- **Consistent API:** Provides a `submit` function for each worker type, mirroring the Pulsar-based API for easy migration.
-- **Observability:** All tasks are instrumented for logging, tracing, and Prometheus metrics.
-- **Migration Ready:** Designed so you can incrementally migrate endpoints to Pulsar by swapping out a single utility import.
+**Use when:**
+- Your workflows are primarily Python-based and synchronous or batch-oriented.
+- You need robust distributed task queues with retry, scheduling, and result backend support.
+- Real-time streaming or cross-language consumption is NOT required.
+- You want simple, well-supported patterns for caching, rate limiting, and idempotency.
+- You are migrating from Redis and want a drop-in, cloud-native alternative.
 
----
+**Typical scenarios:**
+- Background jobs (emails, report generation, batch data sync)
+- Database maintenance and ETL tasks
+- API-triggered workflows where latency is not ultra-critical
+- Tasks requiring strong result tracking and error handling
 
-## Comparison Table
-
-| Feature/Requirement                  | Pulsar Workers (Recommended)        | Celery + Redis Workers (main.py)    |
-|--------------------------------------|-------------------------------------|-------------------------------------|
-| **Horizontal Scalability**           | Excellent (cloud-native, partitioned topics) | Good, but limited by broker scaling |
-| **Throughput**                       | High (millions of msgs/sec)         | Moderate (depends on Redis/broker)  |
-| **Message Durability**               | Strong (persistent topics, DLQ)     | Moderate (depends on broker config) |
-| **Retry & DLQ Support**              | Native, configurable                | Supported, but less flexible        |
-| **Streaming & Event Processing**     | Yes (multi-subscriber, replayable)  | No (queue-based only)               |
-| **Observability (Metrics/Tracing)**  | Built-in (Prometheus, OTel spans)   | Basic (needs extra setup)           |
-| **Decorator Stack**                  | Yes (mirrors Celery utilities)      | Yes (full stack, see above)         |
-| **Credits/Auth/Rate Limiting**       | Yes (identical API)                 | Yes (identical API)                 |
-| **Legacy/Quick Setup**               | More setup, infra required          | Very fast, minimal infra            |
-| **Best for**                         | High-scale, distributed, real-time  | Simple, legacy, or low-scale tasks  |
+**Strengths:**
+- Mature ecosystem, easy to monitor and debug
+- Built-in retry, scheduling, and result storage
+- Tight integration with Python async/await and Pydantic validation
+- Supports Valkey for cache, pub/sub, and queue
 
 ---
 
-## When to Use Pulsar Worker Functions
+## 2. Valkey + Celery + Pulsar
 
-Choose Pulsar-based workers if **any** of the following apply:
+**Use when:**
+- You require high-throughput, real-time, or streaming data pipelines.
+- Workflows involve multiple languages (Python, Java, Go, etc.) or systems.
+- You need features like dead-letter queues (DLQ), message replay, and advanced delivery guarantees (exactly-once).
+- You want to decouple producers and consumers for microservices or event-driven architectures.
+- Geo-replication, horizontal scaling, or persistent queues are critical.
 
-- You need to process a high volume of messages (thousands/sec or more) reliably.
-- You require strict ordering, message replay, or event streaming semantics.
-- You need Dead Letter Queue (DLQ) handling, advanced retry, or circuit breaker logic.
-- Your system must scale horizontally across many worker nodes and data centers.
-- You want built-in observability (Prometheus metrics, OpenTelemetry tracing) for all worker operations.
-- You need fine-grained topic-based routing, filtering, or multi-subscriber consumption.
-- You want to avoid Celery’s limitations with broker support, especially for advanced distributed patterns.
-- You are building a new service or microservice that should be cloud-native and future-proof.
+**Typical scenarios:**
+- Real-time analytics, ingestion pipelines, and event sourcing
+- Cross-service communication in microservice architectures
+- Multi-language consumers (e.g., ML in Python, analytics in Java)
+- Large-scale, distributed systems with strict SLAs
 
-**Example Use Cases:**
-- Real-time data pipelines, ETL, or analytics ingestion.
-- High-throughput webhook/event processing.
-- CPU/IO/DB worker pools for ML, scraping, or distributed computation.
-- Mission-critical workflows needing robust retry, DLQ, and monitoring.
-
----
-
-## When to Use Basic Redis & Celery Workers (main.py)
-
-Choose Celery + Redis if **all** of the following are true:
-
-- You have a legacy codebase already using Celery and migration is not feasible yet.
-- Your workload is low-throughput, simple, and does not require advanced streaming or retry features.
-- You want to prototype something quickly without additional infrastructure.
-- You do not need advanced observability or distributed event processing.
-- You want to leverage the existing decorator stack for credits, auth, rate limiting, and caching as implemented in `main.py`.
-
-**Example Use Cases:**
-- Lightweight background jobs in small/legacy apps.
-- Ad-hoc tasks or one-off scripts.
-- Systems where Redis is already the only broker and no scaling is needed.
+**Strengths:**
+- High scalability and throughput (>10K msg/sec)
+- Built-in DLQ, message retention, replay, and monitoring
+- Decouples task production and consumption
+- Supports both streaming and queue semantics
 
 ---
 
-## Hybrid and Migration Patterns
+## 3. Decision Table
 
-- The decorator and `submit` API in both `main.py` (Celery) and `pulsar.py` (Pulsar) are intentionally consistent. This allows you to migrate endpoints incrementally by swapping imports/utilities with minimal code changes.
-- For new endpoints, prefer Pulsar. For legacy endpoints, use Celery/Redis until migration is practical.
-- Both stacks enforce DRY, SOLID, and CI/CD best practices. Observability, credits, and security are first-class in both.
-
----
-
-## References
-- [`main.py`](../main.py): Celery/Redis worker utilities implementation
-- [`pulsar.py`](../pulsar.py): Pulsar-native worker utilities and usage examples
-- [`_docs/usage.md`](../../pulsar/_docs/usage.md): Pulsar client usage and best practices
-- [Pulsar Official Docs](https://pulsar.apache.org/docs/)
-- [Celery vs. Pulsar: When to Use Each](https://pulsar.apache.org/docs/concepts-messaging/)
+| Use Case                                 | Valkey + Celery | Valkey + Celery + Pulsar |
+|-------------------------------------------|-----------------|--------------------------|
+| Python-only, batch jobs                   | | |
+| Real-time streaming/events                | | |
+| Multi-language consumers                  | | |
+| Simple background tasks                   | | |
+| High throughput, geo-replication needed   | | |
+| DLQ, replay, advanced delivery guarantees | | |
+| Pub/Sub or polling only                   | | |
+| Hybrid (batch + streaming)                | | |
 
 ---
 
-For architectural questions, consult the backend lead or review the current [OPTIMIZED PLAN](../pulsar.py) at the top of the Pulsar worker module.
+## 4. Hybrid Patterns
+
+In some cases, you may combine both stacks:
+- Use Celery for orchestration and result tracking, Pulsar for streaming/event ingestion, and Valkey for caching/idempotency.
+- Example: Ingest events via Pulsar, process in Python with Celery, cache results in Valkey.
+
+---
+
+## 5. References
+
+- See [core.md](./core.md), [pulsar.md](./pulsar.md), [valkey-pulsar.md](./valkey-pulsar.md), and [valkey.md](./valkey.md) for detailed setup and best practices.

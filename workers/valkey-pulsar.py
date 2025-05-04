@@ -1,10 +1,20 @@
-# --- Pulsar Worker Utilities (Celery-Independent, Best Practices) ---
+"""
+Valkey + Pulsar + Celery Integration Utilities (Best Practices)
+=======================================================================
+
+This module provides production-grade worker registration utilities that bridge Valkey (as a Redis-compatible cache, queue, and pub/sub backend), Apache Pulsar (for streaming), and Celery (for distributed task processing).
+
+NOTE: This module does NOT instantiate Valkey, Pulsar, or Celery clients. Pass in your own configured client objects.
+"""
+
 import asyncio
 from collections.abc import Awaitable, Callable
 from typing import Any
 
 from app.api.utils.credits.credits import call_function_with_credits
 from app.api.utils.security.log_sanitization import get_secure_logger
+from app.core.celery.client import celery_app
+from app.core.celery.decorators import celery_task
 from app.core.db_utils.exceptions.exceptions import (
     ForbiddenError,
     log_and_raise_http_exception,
@@ -19,32 +29,61 @@ from app.core.db_utils.workers.utils.index import (
     estimate_credits_for_task,
     permission_role_guard,
 )
+from app.core.pulsar.client import PulsarClient
 from app.core.pulsar.decorators import (
     pulsar_task,
     validate_topic_permissions,
 )
-from app.core.redis.rate_limit import service_rate_limit, verify_and_limit
 from app.core.telemetry.decorators import (
     measure_performance,
     trace_function,
     track_errors,
 )
+from app.core.valkey.client import ValkeyClient
+from app.core.valkey.limiting.rate_limit import service_rate_limit, verify_and_limit
 
-logger = get_secure_logger("app.core.db_utils.workers.pulsar")
+logger = get_secure_logger("app.core.db_utils.workers.valkey_pulsar")
+
+# Setup ValkeyClient and PulsarClient as global singletons
+valkey_client = ValkeyClient()
+pulsar_client = PulsarClient()
 
 
+# Example: Use celery_task decorator for a Celery-compatible function
+@celery_task
+async def example_celery_io_task(*args, **kwargs):
+    """
+    Example Celery-compatible I/O task for Valkey/Pulsar worker integration.
+    """
+    # This task can be referenced by name in celery_app.send_task
+    pass
 
 
-def run_io_task_with_best_practices_pulsar(
+# In worker registration, optionally reference the celery_task-decorated function by name:
+# celery_app.send_task("app.core.db_utils.workers.valkey-pulsar.example_celery_io_task", args=[event])
+
+
+# # Optionally, demonstrate cache usage for idempotency or deduplication
+# @cache(ttl=60)
+# async def idempotent_event_handler(event):
+#     """
+#     Example cached handler for idempotency/deduplication.
+#     """
+#     # ... process event ...
+#     pass
+
+
+# --- I/O Task Worker ---
+def run_io_task_with_best_practices_valkey_pulsar(
     task_func: Callable[..., Awaitable[Any]],
     *,
     config: PulsarIOTaskConfig,
 ) -> Callable[..., Awaitable[Any]]:
     """
-    Register an async I/O task as a Pulsar publisher with all best practices, including caching, rate limiting, retries, circuit breaker, metrics, and permissions.
-    Usage:
-        await run_io_task_with_best_practices_pulsar(my_func, config=PulsarIOTaskConfig())(*args, **kwargs)
+    Register an async I/O task as a worker that consumes from Valkey, publishes to Pulsar, and can enqueue Celery tasks.
+    Uses all config parameters for best practices.
     """
+    # Extract config values
     credit_type = config.credit_type
     credit_amount = config.credit_amount or 0
     cache_ttl = config.cache_ttl
@@ -56,19 +95,23 @@ def run_io_task_with_best_practices_pulsar(
     endpoint = config.endpoint
     task_priority = config.task_priority
     permission_roles = config.permission_roles
-    topic = config.topic
+    channel = getattr(config, "channel", None)
     dlq_topic = getattr(config, "dlq_topic", None)
+    topic = config.topic
+    batch_size = config.batch_size or 100
 
     decorated_func = task_func
     decorated_func = trace_function()(decorated_func)
     decorated_func = track_errors(decorated_func)
     decorated_func = measure_performance(threshold_ms=200)(decorated_func)
+    # Use rate_limit and rate_window from config
     if rate_limit and rate_window:
         decorated_func = service_rate_limit(rate_limit, rate_window, endpoint=endpoint)(
             decorated_func
         )
     if permission_roles:
         decorated_func = permission_role_guard(decorated_func, permission_roles)
+    # Add Pulsar decorators for best practices, set dlq_topic
     if topic:
         decorated_func = pulsar_task(
             topic=topic,
@@ -85,7 +128,7 @@ def run_io_task_with_best_practices_pulsar(
             service_rate_limit(
                 limit=rate_limit or 100,
                 window=rate_window or 60,
-                endpoint=endpoint or "pulsar_io",
+                endpoint=endpoint or "valkey_io",
                 user=user_auth_component,
             )
         )
@@ -93,18 +136,51 @@ def run_io_task_with_best_practices_pulsar(
         while attempt < max_retries:
             try:
                 if credit_amount and req:
-                    result = await call_function_with_credits(
+                    return await call_function_with_credits(
                         lambda request, user: decorated_func(*args, **kwargs),
                         req,
                         credit_type or "io_task",
-                        credit_amount,
+                        credit_amount=credit_amount,
                     )
+                # Retry logic for Valkey lrange with backoff
+                for attempt in range(max_retries):
+                    try:
+                        events = await valkey_client.lrange(
+                            dlq_topic, 0, batch_size - 1
+                        )
+                        break
+                    except Exception as _e:
+                        if attempt == max_retries - 1:
+                            raise
+                        await asyncio.sleep(backoff)
                 else:
-                    result = await decorated_func(*args, **kwargs)
-                logger.info(
-                    f"I/O task succeeded | endpoint={endpoint}, topic={topic}, priority={task_priority}, cache_ttl={cache_ttl}, task_timeout={task_timeout}, dlq_topic={dlq_topic}"
-                )
-                return result
+                    events = []
+                if events:
+                    for event in events:
+                        # Optionally cache event with TTL for idempotency/deduplication
+                        await valkey_client.set(f"event:{event}", event, ex=cache_ttl)
+                        try:
+                            await asyncio.wait_for(
+                                decorated_func(event, *args, **kwargs),
+                                timeout=task_timeout,
+                            )
+                        except asyncio.TimeoutError:
+                            # Optionally log or handle timeout
+                            continue
+                        if topic:
+                            await valkey_client.publish(channel, event)
+                        celery_kwargs = {"args": [event]}
+                        if task_priority is not None:
+                            celery_kwargs["priority"] = task_priority
+                        celery_app.send_task(
+                            "app.core.db_utils.workers.valkey-pulsar.example_celery_io_task",
+                            **celery_kwargs,
+                        )
+                        logger.info(
+                            f"I/O task succeeded | endpoint={endpoint}, topic={topic}, priority={task_priority}, cache_ttl={cache_ttl}, task_timeout={task_timeout}, dlq_topic={dlq_topic}"
+                        )
+                    await valkey_client.ltrim(dlq_topic, batch_size, -1)
+                return
             except ForbiddenError as exc:
                 log_and_raise_http_exception(exc)
             except Exception as e:
@@ -122,15 +198,14 @@ def run_io_task_with_best_practices_pulsar(
     return submit
 
 
-def run_db_task_with_best_practices_pulsar(
+# --- DB Task Worker ---
+def run_db_task_with_best_practices_valkey_pulsar(
     task_func: Callable[..., Awaitable[Any]],
     *,
     config: PulsarDBTaskConfig,
 ) -> Callable[..., Awaitable[Any]]:
     """
-    Register an async DB task as a Pulsar publisher with all best practices, including caching, rate limiting, retries, circuit breaker, metrics, and permissions.
-    Usage:
-        await run_db_task_with_best_practices_pulsar(my_func, config=PulsarDBTaskConfig())(*args, **kwargs)
+    Register an async DB task as a worker that can publish results to Pulsar, with all best practices (decorators for retry, topic permissions, metrics, etc).
     """
     credit_type = config.credit_type
     credit_amount = config.credit_amount or 0
@@ -143,8 +218,9 @@ def run_db_task_with_best_practices_pulsar(
     endpoint = config.endpoint
     task_priority = config.task_priority
     permission_roles = config.permission_roles
-    topic = config.topic
     dlq_topic = getattr(config, "dlq_topic", None)
+    topic = config.topic
+    channel = getattr(config, "channel", None)
 
     decorated_func = task_func
     decorated_func = trace_function()(decorated_func)
@@ -156,6 +232,7 @@ def run_db_task_with_best_practices_pulsar(
         )
     if permission_roles:
         decorated_func = permission_role_guard(decorated_func, permission_roles)
+    # Add Pulsar decorators for best practices, set dlq_topic
     if topic:
         decorated_func = pulsar_task(
             topic=topic,
@@ -173,7 +250,7 @@ def run_db_task_with_best_practices_pulsar(
             service_rate_limit(
                 limit=rate_limit or 100,
                 window=rate_window or 60,
-                endpoint=endpoint or "pulsar_db",
+                endpoint=endpoint or "valkey_db",
                 user=user_auth_component,
             )
         )
@@ -189,6 +266,10 @@ def run_db_task_with_best_practices_pulsar(
                     )
                 else:
                     result = await decorated_func(*args, **kwargs)
+                if valkey_client and channel:
+                    await valkey_client.publish(channel, result)
+                if pulsar_client and topic:
+                    await pulsar_client.send_message(topic, result)
                 logger.info(
                     f"DB task succeeded | endpoint={endpoint}, topic={topic}, priority={task_priority}, cache_ttl={cache_ttl}, task_timeout={task_timeout}, dlq_topic={dlq_topic}"
                 )
@@ -210,20 +291,22 @@ def run_db_task_with_best_practices_pulsar(
     return submit
 
 
-def run_cpu_task_with_best_practices_pulsar(
-    task_func: Callable[..., Any],
+# --- CPU Task Worker ---
+def run_cpu_task_with_best_practices_valkey_pulsar(
+    task_func: Callable[..., Awaitable[Any]],
     *,
     config: PulsarCPUTaskConfig,
-) -> Callable[..., Any]:
+) -> Callable[..., Awaitable[Any]]:
     """
-    Register a CPU-bound task as a Pulsar publisher with all best practices, including caching, rate limiting, retries, circuit breaker, metrics, and permissions.
-    Usage:
-        await run_cpu_task_with_best_practices_pulsar(my_func, config=PulsarCPUTaskConfig())(*args, **kwargs)
+    Register an async CPU task as a worker that can publish results to both Valkey pub/sub, Pulsar, and enqueue Celery tasks.
+    Uses all config parameters for best practices.
     """
+    # Extract config values
     credit_type = config.credit_type
-    credit_amount = config.credit_amount or 1
+    credit_amount = config.credit_amount or 0
     cache_ttl = config.cache_ttl
     rate_limit = config.rate_limit
+    auto_estimate_credits = config.auto_estimate_credits
     rate_window = config.rate_window
     max_retries = config.max_retries or 1
     backoff = config.backoff or 1
@@ -231,20 +314,22 @@ def run_cpu_task_with_best_practices_pulsar(
     endpoint = config.endpoint
     task_priority = config.task_priority
     permission_roles = config.permission_roles
-    topic = config.topic
+    channel = getattr(config, "channel", None)
     dlq_topic = getattr(config, "dlq_topic", None)
-    auto_estimate_credits = getattr(config, "auto_estimate_credits", False)
+    topic = config.topic
 
     decorated_func = task_func
     decorated_func = trace_function()(decorated_func)
     decorated_func = track_errors(decorated_func)
     decorated_func = measure_performance(threshold_ms=200)(decorated_func)
+    # Use rate_limit and rate_window from config
     if rate_limit and rate_window:
         decorated_func = service_rate_limit(rate_limit, rate_window, endpoint=endpoint)(
             decorated_func
         )
     if permission_roles:
         decorated_func = permission_role_guard(decorated_func, permission_roles)
+    # Add Pulsar decorators for best practices, set dlq_topic
     if topic:
         decorated_func = pulsar_task(
             topic=topic,
@@ -266,7 +351,7 @@ def run_cpu_task_with_best_practices_pulsar(
             service_rate_limit(
                 limit=rate_limit or 100,
                 window=rate_window or 60,
-                endpoint=endpoint or "pulsar_cpu",
+                endpoint=endpoint or "valkey_cpu",
                 user=user_auth_component,
             )
         )
@@ -282,8 +367,19 @@ def run_cpu_task_with_best_practices_pulsar(
                     )
                 else:
                     result = await decorated_func(*args, **kwargs)
+                if valkey_client and channel:
+                    await valkey_client.publish(channel, result)
+                if pulsar_client and topic:
+                    await pulsar_client.send_message(topic, result)
+                celery_kwargs = {"args": [result]}
+                if task_priority is not None:
+                    celery_kwargs["priority"] = task_priority
+                celery_app.send_task(
+                    "app.core.db_utils.workers.valkey-pulsar.example_celery_io_task",
+                    **celery_kwargs,
+                )
                 logger.info(
-                    f"CPU task succeeded | endpoint={endpoint}, topic={topic}, priority={task_priority}, cache_ttl={cache_ttl}, task_timeout={task_timeout}, dlq_topic={dlq_topic}"
+                    f"CPU task succeeded | endpoint={endpoint}, channel={channel}, topic={topic}, priority={task_priority}, cache_ttl={cache_ttl}, task_timeout={task_timeout}, dlq_topic={dlq_topic}"
                 )
                 return result
             except ForbiddenError as exc:

@@ -10,7 +10,7 @@ class IOTaskConfig(BaseModel):
 
     credit_type: CreditType | None = None
     credit_amount: int | None = None
-    auth_type: Literal["jwt", "api_key", "oauth", "none"] = "none"
+
     cache_ttl: int = 300  # 5 minutes
     rate_limit: int = 100
     rate_window: int = 60  # 1 minute
@@ -31,7 +31,6 @@ class DBTaskConfig(BaseModel):
 
     credit_type: CreditType | None = None
     credit_amount: int | None = None
-    auth_type: Literal["jwt", "api_key", "oauth", "none"] = "none"
     cache_ttl: int = 300  # 5 minutes
     rate_limit: int = 100
     rate_window: int = 60  # 1 minute
@@ -52,7 +51,7 @@ class CPUTaskConfig(BaseModel):
 
     credit_type: CreditType | None = None
     credit_amount: int | None = None
-    auth_type: Literal["jwt", "api_key", "oauth", "none"] = "none"
+
     cache_ttl: int = 300  # 5 minutes
     rate_limit: int = 100
     rate_window: int = 60  # 1 minute
@@ -77,6 +76,7 @@ class PulsarIOTaskConfig(IOTaskConfig):
     """
     topic: str | None = None  # Pulsar topic for the task
     dlq_topic: str | None = None  # Dead-letter queue topic for failed tasks
+    batch_size: int = 100
 
 
 class PulsarDBTaskConfig(DBTaskConfig):
@@ -87,6 +87,7 @@ class PulsarDBTaskConfig(DBTaskConfig):
 
     topic: str | None = None  # Pulsar topic for the task
     dlq_topic: str | None = None  # Dead-letter queue topic for failed tasks
+    batch_size: int = 100
 
 
 class PulsarCPUTaskConfig(CPUTaskConfig):
@@ -97,3 +98,4 @@ class PulsarCPUTaskConfig(CPUTaskConfig):
 
     topic: str | None = None  # Pulsar topic for the task
     dlq_topic: str | None = None  # Dead-letter queue topic for failed tasks
+    batch_size: int = 100
