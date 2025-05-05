@@ -1,0 +1,37 @@
+# docker-compose.db.yml
+version: '3.8'
+
+services:
+  db:
+    image: postgres:12.17 # Pinned version
+    container_name: postgres_db
+    restart: unless-stopped
+    volumes:
+      # Persist Postgres data
+      - test-db-data:/var/lib/postgresql/data/pgdata
+    environment:
+      # Use Docker secrets for passwords in production
+      - PGDATA=/var/lib/postgresql/data/pgdata
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-testpassword}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_DB=${POSTGRES_DB:-testdb}
+      # Required for password authentication
+      - POSTGRES_HOST_AUTH_METHOD=md5
+    networks:
+      - default # Network for backend, prestart, adminer
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-testdb}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    # ports: # Only expose port 5432 if you need direct host access
+    #   - "5432:5432"
+
+networks:
+  default:
+    external: true # Assume this network is created elsewhere
+
+volumes:
+  test-db-data:
+    # Define the volume used by the db service
