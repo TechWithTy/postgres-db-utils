@@ -1,0 +1,70 @@
+graph TD
+    A[Start Using Security Module] --> B{Check Configuration};
+
+    subgraph Configuration
+        direction TB
+        B1[Ensure settings SECRET_KEY is set];
+        B2[Ensure Redis is running for rate limits];
+        B3[Review Rate Limits in security py TOKEN_CREATION_LIMIT PASSWORD_ATTEMPT_LIMIT];
+    end
+
+    B --> B1;
+    B --> B2;
+    B --> B3;
+
+    C{Choose Security Action};
+    B3 --> C; %% Configuration review leads to choosing an action
+
+    subgraph CoreActions
+        direction LR
+        C -- Create Token --> D[Call create_access_token subject expiry];
+        C -- Hash Password --> E[Call get_password_hash plain_password];
+        C -- Verify Password --> F[Call verify_password plain_password hash identifier];
+    end
+
+    subgraph DependenciesAndOutputs
+        direction TB
+        G[Uses settings SECRET_KEY];
+        H[Uses Redis for Rate Limiting];
+        I[Returns JWT Token];
+        J[Returns Hashed Password];
+        K[Returns Boolean True or Raises HTTPException 429];
+        L[security py Contains Logic];
+    end
+
+    subgraph BestPracticesExtending
+        direction TB
+        M[Best Practice Use Hash Verify Handle Rate Limit Secure Key];
+        N[Extending Add 2FA Adjust Limits Use Encryptor];
+    end
+
+    %% Action Dependencies and Outputs
+    D --> G;
+    D --> H;
+    D --> I;
+    D -- Implemented in --> L;
+
+    E --> J;
+    E -- Implemented in --> L;
+
+    F --> H;
+    F --> K;
+    F -- Implemented in --> L;
+
+    %% Conceptual Links
+    A -.-> M;
+    A -.-> N;
+
+    %% End Point
+    Z[End Security Operation];
+    I --> Z;
+    J --> Z;
+    K -- Success True --> Z;
+    K -- Rate Limit Exception --> HandleException[Handle HTTPException 429];
+    HandleException --> Z;
+
+
+    style Configuration fill:#lightyellow,stroke:#333,stroke-width:1px
+    style CoreActions fill:#eee,stroke:#333,stroke-width:1px
+    style DependenciesAndOutputs fill:#ccf,stroke:#333,stroke-width:1px
+    style BestPracticesExtending fill:#lightgrey,stroke:#333,stroke-width:1px,stroke-dasharray: 5 5
