@@ -33,7 +33,7 @@ class DatabaseError(Exception):
     def __init__(
         self,
         message: str,
-        context: Optional[dict] = None,
+        context: dict | None = None,
         cause: Optional[Exception] = None,
     ):
         super().__init__(message)
@@ -48,7 +48,7 @@ class ConnectionError(DatabaseError):
     def __init__(
         self,
         message: str,
-        connection_details: Optional[dict] = None,
+        connection_details: dict | None = None,
         cause: Optional[Exception] = None,
     ):
         super().__init__(message, {"connection": connection_details}, cause)
@@ -60,7 +60,7 @@ class EncryptionError(DatabaseError):
     def __init__(
         self,
         message: str,
-        field: Optional[str] = None,
+        field: str | None,
         cause: Optional[Exception] = None,
     ):
         super().__init__(message, {"field": field}, cause)

@@ -129,7 +129,7 @@ class DataEncryptor:
             logger.error("Encryption failed", exc_info=True)
             raise EncryptionError(f"Encryption failed: {str(e)}", cause=e) from e
 
-    def decrypt(self, token: str, key_version: Optional[int] = None) -> str:
+    def decrypt(self, token: str, key_version: int | None) -> str:
         """Decrypt data with cache lookup and version support."""
         self._check_rate_limit()
         

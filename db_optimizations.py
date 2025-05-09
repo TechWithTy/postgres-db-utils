@@ -1,6 +1,6 @@
 import logging
 import time
-from typing import Any, Dict, List, Optional, Type, TypeVar, Union
+from typing import Any, dict, list, Optional, Type, TypeVar, Union
 
 from prometheus_client import Counter, Histogram
 from circuitbreaker import CircuitBreakerError, circuit
@@ -70,9 +70,9 @@ class QueryOptimizer:
         expected_exception=(OperationalError, TimeoutError)
     )
     def optimize_single_object_query(model_class: Type[T], 
-                                    query_params: Dict[str, Any],
-                                    join_related_fields: Optional[List[str]] = None,
-                                    select_related_fields: Optional[List[str]] = None,
+                                    query_params: dict[str, Any],
+                                    join_related_fields: list[str] | None = None,
+                                    select_related_fields: list[str] | None = None,
                                     db_session=None) -> Query:
         """
         Optimizes a query with Redis caching layer and circuit breaker protection.
@@ -101,8 +101,8 @@ class QueryOptimizer:
     
     @staticmethod
     def optimize_queryset(query: Query,
-                         join_related_fields: Optional[List[str]] = None,
-                         select_related_fields: Optional[List[str]] = None) -> Query:
+                         join_related_fields: list[str] | None = None,
+                         select_related_fields: list[str] | None = None) -> Query:
         """
         Optimizes a query with retry logic, connection management, and Redis fallback caching.
         """
@@ -130,8 +130,8 @@ class OptimizedQuerySetMixin:
     """
     
     model: DeclarativeBase = None
-    join_related_fields: List[str] = []
-    select_related_fields: List[str] = []
+    join_related_fields: list[str] = []
+    select_related_fields: list[str] = []
     
     def get_query(self, db_session) -> Query:
         """

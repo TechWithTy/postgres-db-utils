@@ -3,7 +3,7 @@ import os
 from dotenv import load_dotenv
 
 
-def load_env(dotenv_path: str | None = None, required_vars: list[str] | None = None) -> None:
+def load_env(dotenv_path: str | None, required_vars: list[str] | None) -> None:
     """
     Loads environment variables from the .env file in project root (local/dev) and verifies
     that required variables are present (for cloud/hosted envs like Hetzner, Coolify, Railway, Vercel, etc).
@@ -25,7 +25,7 @@ def load_env(dotenv_path: str | None = None, required_vars: list[str] | None = N
             print(f"[env_loader] Warning: Missing env variables: {missing}. Check your deployment provider's env config.")
 
 
-def load_test_env(dotenv_path: str | None = None, required_vars: list[str] | None = None) -> None:
+def load_test_env(dotenv_path: str | None, required_vars: list[str] | None) -> None:
     """
     Loads environment variables from the .env.test file (for test environments) and verifies
     that required variables are present. Prints a warning if any required variables are missing.

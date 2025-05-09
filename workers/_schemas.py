@@ -8,8 +8,8 @@ class IOTaskConfig(BaseModel):
     All fields are optional and default to None if not provided.
     """
 
-    credit_type: CreditType | None = None
-    credit_amount: int | None = None
+    credit_type: CreditType | None
+    credit_amount: int | None
 
     cache_ttl: int = 300  # 5 minutes
     rate_limit: int = 100
@@ -29,8 +29,8 @@ class DBTaskConfig(BaseModel):
     All fields are optional and default to None if not provided.
     """
 
-    credit_type: CreditType | None = None
-    credit_amount: int | None = None
+    credit_type: CreditType | None
+    credit_amount: int | None
     cache_ttl: int = 300  # 5 minutes
     rate_limit: int = 100
     rate_window: int = 60  # 1 minute
@@ -49,8 +49,8 @@ class CPUTaskConfig(BaseModel):
     All fields are optional and default to None if not provided.
     """
 
-    credit_type: CreditType | None = None
-    credit_amount: int | None = None
+    credit_type: CreditType | None
+    credit_amount: int | None
 
     cache_ttl: int = 300  # 5 minutes
     rate_limit: int = 100
@@ -74,8 +74,8 @@ class PulsarIOTaskConfig(IOTaskConfig):
     Inherits all IOTaskConfig fields and adds Pulsar-specific options for Pulsar-based async execution.
     Use this configuration for I/O tasks when using Pulsar.
     """
-    topic: str | None = None  # Pulsar topic for the task
-    dlq_topic: str | None = None  # Dead-letter queue topic for failed tasks
+    topic: str | None  # Pulsar topic for the task
+    dlq_topic: str | None  # Dead-letter queue topic for failed tasks
     batch_size: int = 100
 
 
@@ -85,8 +85,8 @@ class PulsarDBTaskConfig(DBTaskConfig):
     Inherits all DBTaskConfig fields and adds Pulsar-specific options.
     """
 
-    topic: str | None = None  # Pulsar topic for the task
-    dlq_topic: str | None = None  # Dead-letter queue topic for failed tasks
+    topic: str | None  # Pulsar topic for the task
+    dlq_topic: str | None  # Dead-letter queue topic for failed tasks
     batch_size: int = 100
 
 
@@ -96,6 +96,6 @@ class PulsarCPUTaskConfig(CPUTaskConfig):
     Inherits all CPUTaskConfig fields and adds Pulsar-specific options.
     """
 
-    topic: str | None = None  # Pulsar topic for the task
-    dlq_topic: str | None = None  # Dead-letter queue topic for failed tasks
+    topic: str | None  # Pulsar topic for the task
+    dlq_topic: str | None  # Dead-letter queue topic for failed tasks
     batch_size: int = 100

@@ -17,8 +17,8 @@ api_key_scheme = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
 async def authenticate_user(
-    jwt_token: Optional[str] = Security(oauth2_scheme, auto_error=False),
-    api_key: Optional[str] = Security(api_key_scheme, auto_error=False),
+    jwt_token: str | None = Security(oauth2_scheme, auto_error=False),
+    api_key: str | None = Security(api_key_scheme, auto_error=False),
     oauth_token: Optional[
         str
     ] = None,  # For future extensibility, e.g. from a custom header or cookie
