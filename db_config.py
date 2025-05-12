@@ -37,6 +37,8 @@ def get_db_url() -> str:
     
     return f"{url}?{'&'.join(f'{k}={v}' for k,v in ssl_params.items())}"
 
+from sqlalchemy.engine.url import make_url
+
 def create_engine():
     """
     Create and return a production-configured async database engine.
@@ -45,18 +47,31 @@ def create_engine():
     - SSL enforcement
     - Optimized pooling
     """
-    pool_config = get_pool_config()
-    return create_async_engine(
-        get_db_url(),
-        pool_size=pool_config["pool_size"],
-        max_overflow=pool_config["max_overflow"],
-        pool_recycle=pool_config["pool_recycle"],
-        pool_timeout=pool_config["pool_timeout"],
-        pool_pre_ping=True,
-        pool_use_lifo=True,
-        echo=bool(getattr(settings, 'SQL_ECHO', False)),
-        connect_args={
-            'command_timeout': pool_config["pool_timeout"],
-            'ssl': 'prefer' if getattr(settings, 'ENV', 'test') == 'production' else None
-        }
-    )
+    db_url = get_db_url()
+    url_obj = make_url(db_url)
+    is_sqlite = url_obj.get_backend_name() == "sqlite"
+
+    if is_sqlite:
+        # ! SQLite/aiosqlite does NOT support pool_size, max_overflow, etc.
+        # ! Only pass supported arguments to avoid TypeError in tests.
+        return create_async_engine(
+            db_url,
+            echo=bool(getattr(settings, 'SQL_ECHO', False)),
+            connect_args={},
+        )
+    else:
+        pool_config = get_pool_config()
+        return create_async_engine(
+            db_url,
+            pool_size=pool_config["pool_size"],
+            max_overflow=pool_config["max_overflow"],
+            pool_recycle=pool_config["pool_recycle"],
+            pool_timeout=pool_config["pool_timeout"],
+            pool_pre_ping=True,
+            pool_use_lifo=True,
+            echo=bool(getattr(settings, 'SQL_ECHO', False)),
+            connect_args={
+                'command_timeout': pool_config["pool_timeout"],
+                'ssl': 'prefer' if getattr(settings, 'ENV', 'test') == 'production' else None
+            }
+        )

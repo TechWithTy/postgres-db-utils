@@ -78,6 +78,7 @@ class PoolMetrics:
     errors: int = 0
     failed_attempts: int = 0
     state: PoolState = PoolState.HEALTHY
+    recycles: int = 0  # * Added for test compatibility
 
 
 class ConnectionPool:

@@ -6,6 +6,20 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from app.core.config import settings
 from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram
 
+# --- Universal mock SQLAlchemy model fixture for query optimization tests ---
+from sqlalchemy.orm import declarative_base
+from sqlalchemy import Column, Integer
+
+Base = declarative_base()
+
+class MockModel(Base):
+    __tablename__ = "mock_table"
+    id = Column(Integer, primary_key=True)
+
+@pytest.fixture
+def mock_model():
+    return MockModel
+
 # * Fixture for mocking ConnectionPool or DB pool
 @pytest.fixture
 def mock_db_pool():
