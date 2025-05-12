@@ -1,5 +1,10 @@
 """
 Production-ready tests for db_optimizations.py with enhanced coverage.
+
+# Robust mocking strategy:
+# - Patch .options on a MagicMock query, not just the session, to capture loader calls.
+# - Always pass at least one join_related_field to ensure .options() is called.
+# - For singleton classes (like ConnectionPool), reset and reload module after patching settings.
 """
 from unittest.mock import MagicMock, patch
 
@@ -53,19 +58,27 @@ class TestQueryOptimizer:
 
     async def test_optimize_single_object_query(self, mock_db_session, mock_model):
         """Test query optimization with joinedload and selectinload."""
-        optimizer = QueryOptimizer(mock_model)
-        query = optimizer.optimize_query(mock_db_session.query(mock_model))
-        
-        # Verify optimization strategies are applied
-        assert any(isinstance(opt, (joinedload, selectinload)) 
-                  for opt in query._with_options)
+        # Patch .options on the query mock and capture loader calls robustly
+        query_mock = MagicMock()
+        loader_calls = []
+        def options_side_effect(*args, **kwargs):
+            loader_calls.extend(args)
+            return query_mock
+        query_mock.options.side_effect = options_side_effect
+        mock_db_session.query.return_value = query_mock
+        # Run optimizer
+        QueryOptimizer.optimize_queryset(
+            mock_db_session.query(mock_model),
+            join_related_fields=[mock_model.related_field],
+            select_related_fields=[mock_model.many_related_field]
+        )
+        # Check that joinedload/selectinload were called
+        assert any(type(call).__name__ in ("joinedload", "selectinload") for call in loader_calls)
 
     async def test_optimize_queryset(self, mock_model):
         """Test query optimization on existing queryset."""
         queryset = MagicMock(spec=Query)
-        optimizer = QueryOptimizer(mock_model)
-        optimized = optimizer.optimize_queryset(queryset)
-        
+        optimized = QueryOptimizer.optimize_queryset(queryset)
         assert optimized is not None
         queryset.options.assert_called()
 
@@ -93,12 +106,13 @@ class TestQueryOptimizer:
 @pytest.mark.asyncio
 class TestOptimizedQuerySetMixin:
     """Test suite for OptimizedQuerySetMixin with production features."""
-    
-    model = mock_model
-    join_related_fields = [mock_model.related_field]
-    select_related_fields = [mock_model.many_related_field]
 
     async def test_get_query(self, mock_db_session, mock_model):
+        # Set up the mixin instance with the actual mock_model
+        mixin = OptimizedQuerySetMixin()
+        mixin.model = mock_model
+        mixin.join_related_fields = ["related_field"]
+        mixin.select_related_fields = ["many_related_field"]
         """Test query generation with optimizations."""
         class TestQuerySet(OptimizedQuerySetMixin):
             model = mock_model

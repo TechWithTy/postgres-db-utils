@@ -5,10 +5,8 @@ import pytest
 from unittest.mock import patch, MagicMock
 from cryptography.fernet import InvalidToken, Fernet
 import time
-from pytest import monkeypatch
 
 from app.core.db_utils.encryption import DataEncryptor, EncryptionError
-from app.core.db_utils.decorators import EncryptionError
 
 
 @pytest.mark.asyncio

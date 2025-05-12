@@ -13,6 +13,22 @@ from typing import Any, Optional
 from fastapi import HTTPException, status
 
 
+class EncryptionError(Exception):
+    """Exception raised for encryption/decryption errors."""
+    def __init__(self, message: str = "Encryption operation failed"):
+        super().__init__(message)
+
+class ConnectionError(Exception):
+    """Exception raised for DB connection errors."""
+    def __init__(self, message: str = "Database connection error"):
+        super().__init__(message)
+
+class DatabaseError(Exception):
+    """Generic database error."""
+    def __init__(self, message: str = "Database error"):
+        super().__init__(message)
+
+
 class APIError(HTTPException):
     """Base exception for API errors with structured response."""
 
@@ -40,7 +56,7 @@ class BadRequestError(APIError):
     """400 - Invalid request parameters"""
 
     def __init__(
-        self, message: str = "Invalid request", details: dict[str, Any] | None
+        self, message: str = "Invalid request", details: Optional[dict[str, Any]] = None
     ):
         super().__init__(
             status_code=status.HTTP_400_BAD_REQUEST,

@@ -59,22 +59,23 @@ def run_io_task_with_best_practices(
         InsufficientCreditsError, RateLimitError, ForbiddenError, ServiceTimeoutError, APIError
     """
     # Extract config values
-    credit_type = config.credit_type
-    credit_amount = config.credit_amount or 0
-    cache_ttl = config.cache_ttl
-    rate_limit = config.rate_limit
-    rate_window = config.rate_window
-    max_retries = config.max_retries
-    backoff = config.backoff
-    task_timeout = config.task_timeout
-    endpoint = config.endpoint
-    task_priority = config.task_priority
-    permission_roles = config.permission_roles
+    credit_type = getattr(config, "credit_type", None)
+    credit_amount = getattr(config, "credit_amount", 0) or 0
+    cache_ttl = getattr(config, "cache_ttl", None)
+    rate_limit = getattr(config, "rate_limit", None)
+    rate_window = getattr(config, "rate_window", None)
+    max_retries = getattr(config, "max_retries", None)
+    backoff = getattr(config, "backoff", None)
+    task_timeout = getattr(config, "task_timeout", None)
+    endpoint = getattr(config, "endpoint", None)
+    task_priority = getattr(config, "task_priority", None)
+    permission_roles = getattr(config, "permission_roles", ["admin"])
 
-    decorated_func = trace_function()(task_func)
+
+    decorated_func = trace_function(f"{task_func.__module__}.{task_func.__name__}")(task_func)
     decorated_func = track_errors(decorated_func)
     decorated_func = measure_performance(threshold_ms=200)(decorated_func)
-    decorated_func = retry_decorator(max_retries=max_retries, backoff=backoff)(
+    decorated_func = retry_decorator(max_retries=max_retries)(
         decorated_func
     )
     decorated_func = with_pool_metrics(decorated_func)
@@ -83,21 +84,18 @@ def run_io_task_with_best_practices(
     if cache_ttl is not None:
         decorated_func = cache_decorator(
             RedisClient(),
-            ttl=cache_ttl,
-            key_builder=lambda f, *args, **kwargs: (
-                f"{f.__module__}.{f.__name__}:"
-                f"{_build_user_auth_component(kwargs, permission_roles)}:"
-                f"roles={permission_roles}:"
-                f"{args}:{kwargs}"
-            ),
+            ttl=cache_ttl
         )(decorated_func)
 
     if permission_roles:
         decorated_func = permission_role_guard(decorated_func, permission_roles)
 
-    celery_wrapped = celery_task(queue="io", soft_time_limit=task_timeout)(
-        decorated_func
-    )
+    celery_wrapped = celery_task(
+        f"{task_func.__module__}.{task_func.__name__}",
+        queue="io",
+        soft_time_limit=task_timeout
+    )(decorated_func)
+    
 
     use_credits = bool(credit_type and credit_amount)
 
@@ -170,24 +168,25 @@ def run_db_task_with_best_practices(
     Raises:
         InsufficientCreditsError, RateLimitError, ForbiddenError, ServiceTimeoutError, APIError
     """
-    credit_type = config.credit_type
-    credit_amount = config.credit_amount or 0
-    cache_ttl = config.cache_ttl
-    rate_limit = config.rate_limit
-    rate_window = config.rate_window
-    max_retries = config.max_retries
-    backoff = config.backoff
-    task_timeout = config.task_timeout
-    endpoint = config.endpoint
-    task_priority = config.task_priority
-    permission_roles = config.permission_roles
+    credit_type = getattr(config, "credit_type", None)
+    credit_amount = getattr(config, "credit_amount", 0) or 0
+    cache_ttl = getattr(config, "cache_ttl", 300)
+    rate_limit = getattr(config, "rate_limit", 100)
+    rate_window = getattr(config, "rate_window", 60)
+    max_retries = getattr(config, "max_retries", 3)
+    backoff = getattr(config, "backoff", 2)
+    task_timeout = getattr(config, "task_timeout", 60)
+    endpoint = getattr(config, "endpoint", "db-task") 
+    task_priority = getattr(config, "task_priority", 5)
+    permission_roles = getattr(config, "permission_roles", ["admin"])
 
-    decorated_func = trace_function()(task_func)
+
+    decorated_func = trace_function(f"{task_func.__module__}.{task_func.__name__}")(task_func)
     decorated_func = track_errors(decorated_func)
     decorated_func = measure_performance(threshold_ms=250)(decorated_func)
     decorated_func = with_engine_connection(decorated_func)
     decorated_func = with_query_optimization(decorated_func)
-    decorated_func = retry_decorator(max_retries=max_retries, backoff=backoff)(
+    decorated_func = retry_decorator(max_retries=max_retries)(
         decorated_func
     )
     decorated_func = with_pool_metrics(decorated_func)
@@ -195,20 +194,17 @@ def run_db_task_with_best_practices(
     if cache_ttl is not None:
         decorated_func = cache_decorator(
             RedisClient(),
-            ttl=cache_ttl,
-            key_builder=lambda f, *args, **kwargs: (
-                f"{f.__module__}.{f.__name__}:"
-                f"{_build_user_auth_component(kwargs, permission_roles)}:"
-                f"roles={permission_roles}:"
-                f"{args}:{kwargs}"
-            ),
+            ttl=cache_ttl
         )(decorated_func)
     if permission_roles:
         decorated_func = permission_role_guard(decorated_func, permission_roles)
 
-    celery_wrapped = celery_task(queue="db", soft_time_limit=task_timeout)(
-        decorated_func
-    )
+    celery_wrapped = celery_task(
+        f"{task_func.__module__}.{task_func.__name__}",
+        queue="db",
+        soft_time_limit=task_timeout
+    )(decorated_func)
+    
 
     use_credits = bool(credit_type and credit_amount)
 
@@ -285,48 +281,48 @@ def run_cpu_task_with_best_practices(
     Raises:
         InsufficientCreditsError, RateLimitError, ForbiddenError, ServiceTimeoutError, APIError
     """
-    credit_type = config.credit_type
-    credit_amount = config.credit_amount or 1
-    cache_ttl = config.cache_ttl
-    rate_limit = config.rate_limit
-    rate_window = config.rate_window
-    auto_estimate_credits = config.auto_estimate_credits
-    max_retries = config.max_retries
-    backoff = config.backoff
-    cb_threshold = config.cb_threshold
-    cb_timeout = config.cb_timeout
-    task_timeout = config.task_timeout
-    endpoint = config.endpoint
-    task_priority = config.task_priority
-    permission_roles = config.permission_roles
+    credit_type = getattr(config, "credit_type", None)
+    credit_amount = getattr(config, "credit_amount", 0) or 1
+    cache_ttl = getattr(config, "cache_ttl", None)
+    rate_limit = getattr(config, "rate_limit", None)
+    rate_window = getattr(config, "rate_window", None)
+    auto_estimate_credits = getattr(config, "auto_estimate_credits", False)
+    max_retries = getattr(config, "max_retries", 3)
+    backoff = getattr(config, "backoff", 2)
+    cb_threshold = getattr(config, "cb_threshold", 10)
+    cb_timeout = getattr(config, "cb_timeout", 60)
+    task_timeout = getattr(config, "task_timeout", 60)
+    endpoint = getattr(config, "endpoint", "cpu-task")
+    task_priority = getattr(config, "task_priority", 5)
+    permission_roles = getattr(config, "permission_roles", ["admin"])
 
-    decorated_func = trace_function()(task_func)
+
+    decorated_func = trace_function(f"{task_func.__module__}.{task_func.__name__}")(task_func)
     decorated_func = track_errors(decorated_func)
     decorated_func = measure_performance(threshold_ms=500)(decorated_func)
-    decorated_func = retry_decorator(max_retries=max_retries, backoff=backoff)(
+    decorated_func = retry_decorator(max_retries=max_retries)(
         decorated_func
     )
     decorated_func = with_pool_metrics(decorated_func)
     decorated_func = circuit_breaker_decorator(
-        max_attempts=cb_threshold, timeout=cb_timeout
+        max_attempts=cb_threshold,
+        wait_base=backoff,
+        wait_max=cb_timeout
     )(decorated_func)
     if cache_ttl is not None:
         decorated_func = cache_decorator(
             RedisClient(),
-            ttl=cache_ttl,
-            key_builder=lambda f, *args, **kwargs: (
-                f"{f.__module__}.{f.__name__}:"
-                f"{_build_user_auth_component(kwargs, permission_roles)}:"
-                f"roles={permission_roles}:"
-                f"{args}:{kwargs}"
-            ),
+            ttl=cache_ttl
         )(decorated_func)
     if permission_roles:
         decorated_func = permission_role_guard(decorated_func, permission_roles)
 
-    celery_wrapped = celery_task(queue="cpu", soft_time_limit=task_timeout)(
-        decorated_func
-    )
+    celery_wrapped = celery_task(
+        f"{task_func.__module__}.{task_func.__name__}",
+        queue="cpu",
+        soft_time_limit=task_timeout
+    )(decorated_func)
+    
     use_credits = bool(credit_type and credit_amount)
 
     async def submit(*args, **kwargs) -> AsyncResult:

@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 
 from app.api.deps_supabase import get_supabase_db
 from app.core.config import settings
-from app.core.redis.rate_limit import service_rate_limit
+from app.core.valkey_core.limiting.rate_limit import service_rate_limit
 
 router = APIRouter()
 logger = logging.getLogger(__name__)

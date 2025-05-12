@@ -1,4 +1,4 @@
-from app.models.credit import CreditType
+from app.models._data.user.billing.credit_models import CreditType
 from pydantic import BaseModel
 from typing import Literal
 

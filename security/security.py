@@ -3,6 +3,10 @@ from typing import Any
 
 import jwt
 from fastapi import HTTPException, Security, status
+from fastapi.security import OAuth2PasswordBearer, APIKeyHeader
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
+api_key_scheme = APIKeyHeader(name="X-API-KEY", auto_error=False)
 
 from app.core.config import settings
 from app.core.db_utils.encryption import DataEncryptor
@@ -61,12 +65,17 @@ def get_password_hash(password: str) -> str:
 
 
 # --- Unified Auth Dependency ---
-auth_service = SupabaseAuthService()
+from app.core.third_party_integrations.supabase_home.app import get_supabase_client
+
+async def get_auth_service():
+    client = await get_supabase_client()
+    return SupabaseAuthService(client)
 
 
 async def get_verified_user(
-    jwt_token: str = Security(auth_service.oauth2_scheme, auto_error=False),
-    api_key: str = Security(auth_service.api_key_scheme, auto_error=False),
+    jwt_token: str = Security(oauth2_scheme),
+    api_key: str = Security(api_key_scheme),
+    auth_service: SupabaseAuthService = Security(get_auth_service),
 ):
     """
     Unified dependency for verifying user via JWT or API key.

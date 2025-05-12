@@ -1,13 +1,13 @@
 import logging
 import time
-from typing import Any, dict, list, Optional, Type, TypeVar, Union
+from typing import Any, Optional, Type, TypeVar, Union
 
 from prometheus_client import Counter, Histogram
 from circuitbreaker import CircuitBreakerError, circuit
 from sqlalchemy.exc import OperationalError, SQLAlchemyError, TimeoutError
 from sqlalchemy.orm import DeclarativeBase, Query, joinedload, selectinload
 
-from app.core.redis.redis_decorator import get_or_set_cache
+from app.core.valkey_core.cache.valkey_cache import cache_result
 
 logger = logging.getLogger(__name__)
 
@@ -57,18 +57,12 @@ class QueryOptimizer:
     RETRY_DELAY = 0.1
     
     @staticmethod
-    @get_or_set_cache(
-        key_fn=lambda model_class, query_params, **_: 
-            f"query_opt:{model_class.__name__}:{hash(frozenset(query_params.items()))}",
-        ttl=3600,
-        warm_cache=True,
-        stale_ttl=300
-    )
     @circuit(
         failure_threshold=5,
         recovery_timeout=30,
         expected_exception=(OperationalError, TimeoutError)
     )
+    @cache_result(ttl=300, key_prefix="db_query_optimizations")
     def optimize_single_object_query(model_class: Type[T], 
                                     query_params: dict[str, Any],
                                     join_related_fields: list[str] | None = None,

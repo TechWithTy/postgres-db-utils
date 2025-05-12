@@ -10,20 +10,25 @@ from app.core.config import TimeoutSettings, settings
 # Initialize timeout settings
 timeout_settings = TimeoutSettings()
 
-# Pool configuration
-POOL_SIZE = int(getattr(settings, 'DB_POOL_SIZE', 5))
-MAX_OVERFLOW = int(getattr(settings, 'DB_MAX_OVERFLOW', 10))
-POOL_RECYCLE = int(getattr(settings, 'DB_POOL_RECYCLE', 3600))  # 1 hour
-POOL_TIMEOUT = int(getattr(settings, 'DB_POOL_TIMEOUT', timeout_settings.POSTGRES))
+# Pool configuration should be evaluated inside a function for test patching
+
+def get_pool_config():
+    timeout_settings = TimeoutSettings()
+    return {
+        "pool_size": int(getattr(settings, 'DB_POOL_SIZE', 5)),
+        "max_overflow": int(getattr(settings, 'DB_MAX_OVERFLOW', 10)),
+        "pool_recycle": int(getattr(settings, 'DB_POOL_RECYCLE', 3600)),
+        "pool_timeout": int(getattr(settings, 'DB_POOL_TIMEOUT', timeout_settings.POSTGRES)),
+    }
 
 def get_db_url() -> str:
     """
     Get production-ready DB URL with SSL enforcement.
     """
-    ssl_mode = getattr(settings, 'DB_SSL_MODE', 'require')
-    ssl_root_cert = getattr(settings, 'DB_SSL_ROOT_CERT', None)
+    ssl_mode = getattr(settings.database, 'DB_SSL_MODE', 'require')
+    ssl_root_cert = getattr(settings.database, 'DB_SSL_ROOT_CERT', None)
     
-    url = f"postgresql+asyncpg://{settings.DB_USER}:{settings.DB_PASSWORD}@{settings.DB_HOST}:{settings.DB_PORT}/{settings.DB_NAME}"
+    url = f"postgresql+asyncpg://{settings.database.DB_USER}:{settings.database.DB_PASSWORD}@{settings.database.DB_HOST}:{settings.database.DB_PORT}/{settings.database.DB_NAME}"
     
     ssl_params = {
         'ssl': 'require',
@@ -40,17 +45,18 @@ def create_engine():
     - SSL enforcement
     - Optimized pooling
     """
+    pool_config = get_pool_config()
     return create_async_engine(
         get_db_url(),
-        pool_size=POOL_SIZE,
-        max_overflow=MAX_OVERFLOW,
-        pool_recycle=POOL_RECYCLE,
-        pool_timeout=POOL_TIMEOUT,
+        pool_size=pool_config["pool_size"],
+        max_overflow=pool_config["max_overflow"],
+        pool_recycle=pool_config["pool_recycle"],
+        pool_timeout=pool_config["pool_timeout"],
         pool_pre_ping=True,
         pool_use_lifo=True,
         echo=bool(getattr(settings, 'SQL_ECHO', False)),
         connect_args={
-            'command_timeout': POOL_TIMEOUT,
-            'ssl': 'prefer' if getattr(settings, 'ENV') == 'production' else None
+            'command_timeout': pool_config["pool_timeout"],
+            'ssl': 'prefer' if getattr(settings, 'ENV', 'test') == 'production' else None
         }
     )

@@ -23,6 +23,13 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Optional
 
+# * Import create_engine from db_config to provide a unified get_engine interface
+def get_engine():
+    """Return a new async database engine instance."""
+    from app.core.db_utils.db_config import create_engine
+    return create_engine()
+
+
 from circuitbreaker import circuit
 from prometheus_client import Counter, Gauge, Histogram
 from prometheus_client import start_http_server as start_metrics_server
@@ -34,6 +41,10 @@ from sqlalchemy.orm import sessionmaker
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+def get_pool_metrics() -> dict:
+    """Stub for pool metrics. Replace with real implementation if needed."""
+    return {}
 
 # Prometheus Metrics
 DB_CONNECTION_ATTEMPTS = Counter(
@@ -105,7 +116,7 @@ class ConnectionPool:
 
     def _validate_pool_config(self):
         """Validate pool configuration meets production requirements"""
-        if not settings.DATABASE_URL:
+        if not getattr(settings.database, "DATABASE_URL", None):
             raise ValueError("DATABASE_URL must be configured")
 
         if self.DEFAULT_POOL_SIZE <= 0:

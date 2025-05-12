@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db_utils.db_config import create_engine
 from app.core.db_utils.db_optimizations import QueryOptimizer
-from app.core.db_utils.pool import ConnectionPoolMonitor, get_engine
+from app.core.db_utils.pool import ConnectionPool, get_engine
 
 
 @pytest.mark.integration
@@ -20,7 +20,7 @@ class TestProductionScenarios:
     async def test_connection_pool_under_load(self):
         """Test connection pool behavior under concurrent load."""
         engine = get_engine()
-        monitor = ConnectionPoolMonitor()
+        monitor = ConnectionPool()
         
         async def execute_query():
             async with engine.connect() as conn:
@@ -79,7 +79,7 @@ class TestProductionScenarios:
     async def test_connection_recycling(self):
         """Test connection pool recycling behavior."""
         engine = get_engine()
-        monitor = ConnectionPoolMonitor()
+        monitor = ConnectionPool()
         
         initial_recycles = monitor.metrics['recycles']
         

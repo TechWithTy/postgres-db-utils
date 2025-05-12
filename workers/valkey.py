@@ -22,7 +22,7 @@ from app.core.telemetry.decorators import (
     trace_function,
     track_errors,
 )
-from app.core.valkey.client import ValkeyClient
+from app.core.valkey_core.client import ValkeyClient
 from app.core.valkey.limiting.rate_limit import service_rate_limit, verify_and_limit
 
 valkey_client = ValkeyClient()

@@ -20,6 +20,7 @@ from app.core.config import settings
 from app.core.db_utils.db_config import create_engine, get_db_url
 from app.core.db_utils.db_optimizations import QueryOptimizer
 from app.core.db_utils.encryption import DataEncryptor
+from app.core.db_utils.exceptions.exceptions import ConnectionError, DatabaseError
 from app.core.db_utils.pool import get_pool_metrics
 from app.core.db_utils.sensitive import load_environment_files
 
@@ -27,43 +28,10 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 
-class DatabaseError(Exception):
-    """Base exception for database operations"""
-
-    def __init__(
-        self,
-        message: str,
-        context: dict | None = None,
-        cause: Optional[Exception] = None,
-    ):
-        super().__init__(message)
-        self.context = context or {}
-        self.__cause__ = cause
-        logger.error(f"DatabaseError: {message}", extra={"context": context})
 
 
-class ConnectionError(DatabaseError):
-    """Exception for connection-related issues"""
-
-    def __init__(
-        self,
-        message: str,
-        connection_details: dict | None = None,
-        cause: Optional[Exception] = None,
-    ):
-        super().__init__(message, {"connection": connection_details}, cause)
 
 
-class EncryptionError(DatabaseError):
-    """Exception for encryption-related issues"""
-
-    def __init__(
-        self,
-        message: str,
-        field: str | None,
-        cause: Optional[Exception] = None,
-    ):
-        super().__init__(message, {"field": field}, cause)
 
 
 class RetryableError(DatabaseError):
@@ -117,7 +85,7 @@ def with_engine_connection(func: Callable) -> Callable:
     """
 
     @functools.wraps(func)
-    @retry_decorator(max_retries=settings.DB_CONNECTION_RETRIES)
+    @retry_decorator(max_retries=settings.database.DB_CONNECTION_RETRIES)
     async def wrapper(*args, **kwargs) -> Any:
         start_time = time.monotonic()
         logger.debug("Creating database connection")

@@ -102,7 +102,7 @@ from app.core.redis.rate_limit import service_rate_limit, verify_and_limit
 from app.core.telemetry.decorators import measure_performance, trace_function, track_errors
 from app.core.db_utils.workers.utils.index import circuit_breaker_decorator
 from app.api.utils.security.log_sanitization import get_secure_logger
-from app.core.valkey.client import ValkeyClient
+from app.core.valkey_core.client import ValkeyClient
 
 logger = get_secure_logger("app.core.db_utils.workers.valkey")
 

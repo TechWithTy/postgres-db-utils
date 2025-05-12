@@ -5,7 +5,7 @@ from typing import Any
 from prometheus_client import Counter, Histogram
 
 from app.core.pulsar.client import PulsarClient
-from app.core.valkey.client import ValkeyClient
+from app.core.valkey_core.client import ValkeyClient
 
 logger = logging.getLogger(__name__)
 

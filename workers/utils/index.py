@@ -1,6 +1,6 @@
 from typing import Any, Callable
 
-from backend.app.api.utils.security.log_sanitization import get_secure_logger
+from app.api.utils.security.log_sanitization import get_secure_logger
 from tenacity import (
     retry,
     retry_if_exception_type,

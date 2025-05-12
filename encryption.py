@@ -12,7 +12,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from prometheus_client import Counter, Gauge
 
 from app.core.config import settings
-from app.core.db_utils.decorators import EncryptionError
+from app.core.db_utils.exceptions.exceptions import EncryptionError
 
 logger = logging.getLogger(__name__)
 
@@ -51,11 +51,18 @@ class DataEncryptor:
 
     def _initialize(self):
         """Initialize the encryptor with validated key and cache."""
-        self._validate_key_strength(settings.ENCRYPTION_KEY)
-        self.cipher = Fernet(settings.ENCRYPTION_KEY)
+        self._validate_key_strength(settings.security.ENCRYPTION_KEY)
+        self.cipher = Fernet(settings.security.ENCRYPTION_KEY)
         self._cache: dict[str, str] = {}
         self._cache_hits = 0
         self._cache_misses = 0
+
+    def _validate_key_strength(self, key: str):
+        """Validate that the encryption key is a valid Fernet key."""
+        try:
+            Fernet(key)
+        except Exception as e:
+            raise ValueError("Invalid ENCRYPTION_KEY for Fernet") from e
         self._last_key_rotation_check = time.time()
         self._key_version = 1  # Track key versions for rotation
         self._rate_limit_window = 60  # seconds

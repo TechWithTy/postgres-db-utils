@@ -75,11 +75,11 @@ class TestDatabasePool:
     #         f"Env SUPABASE_DB_CONNECTION_DIRECT: {os.environ.get('SUPABASE_DB_CONNECTION_DIRECT')}"
     #     )
     #     logger.info(
-    #         f"Settings SUPABASE_DB_CONNECTION_DIRECT: {settings.SUPABASE_DB_CONNECTION_DIRECT}"
+    #         f"Settings SUPABASE_DB_CONNECTION_DIRECT: {settings.database.SUPABASE_DB_CONNECTION_DIRECT}"
     #     )
 
     #     # Get URL from settings (which should use env vars)
-    #     db_url = settings.SUPABASE_DB_CONNECTION_DIRECT or settings.DATABASE_URL
+    #     db_url = settings.database.SUPABASE_DB_CONNECTION_DIRECT or settings.database.DATABASE_URL
 
     #     if not db_url or "[YOUR-PASSWORD]" in db_url:
     #         safe_url = (
