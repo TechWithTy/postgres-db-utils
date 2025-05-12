@@ -10,6 +10,17 @@ import pytest
 from sqlalchemy import text
 from unittest.mock import patch
 
+# Fixture to clear encryption singleton (future-proof, harmless if unused)
+@pytest.fixture(autouse=True)
+def clear_encryptor_singleton():
+    try:
+        from app.core.db_utils.encryption import DataEncryptor
+        DataEncryptor._instance = None
+    except ImportError:
+        pass
+
+pytestmark = pytest.mark.usefixtures("clear_encryptor_singleton")
+
 logger = logging.getLogger(__name__)
 
 from app.core.config import settings
@@ -28,9 +39,8 @@ class TestDatabasePool:
     @pytest.mark.asyncio
     async def test_get_db_session(self, mock_db_session):
         """Test session lifecycle management"""
-        with patch(
-            "app.core.db_utils.pool.AsyncSessionLocal", return_value=mock_db_session
-        ):
+        # Patch ConnectionPool.get_connection to return our mock session
+        with patch("app.core.db_utils.pool.ConnectionPool.get_connection", return_value=mock_db_session):
             session_gen = pool.get_db_session()
             session = await session_gen.__anext__()
             assert session is mock_db_session
@@ -43,8 +53,8 @@ class TestDatabasePool:
     async def test_supabase_url_conversion(self, mock_db_pool):
         """Test supabase URL conversion"""
         with patch.object(
-            settings,
-            "SUPABASE_DB_CONNECTION_DIRECT",
+            settings.database,
+            "SUPABASE_DB_DIRECT_CONNECTION",
             "postgresql://mock:mock@localhost/mock",
         ):
             engine = pool.get_engine()
@@ -55,13 +65,11 @@ class TestDatabasePool:
         """Test configuration priority"""
         with (
             patch.object(
-                settings,
-                "SUPABASE_DB_CONNECTION_DIRECT",
+                settings.database,
+                "SUPABASE_DB_DIRECT_CONNECTION",
                 "postgresql://mock:mock@localhost/mock",
             ),
-            patch.object(
-                settings, "DATABASE_URL", "postgresql://mock:mock@localhost/mock"
-            ),
+            patch("app.core.db_utils.db_config.get_db_url", return_value="postgresql://mock:mock@localhost/mock"),
         ):
             engine = pool.get_engine()
             assert engine is not None

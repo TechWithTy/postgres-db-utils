@@ -37,6 +37,7 @@ from sqlalchemy.event import listens_for
 from sqlalchemy.exc import DisconnectionError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy import text
 
 from app.core.config import settings
 
@@ -205,7 +206,7 @@ class ConnectionPool:
     async def _test_connection(self, session: AsyncSession):
         """Validate the connection is still healthy"""
         try:
-            await session.execute("SELECT 1")
+            await session.execute(text("SELECT 1"))
         except Exception as e:
             await session.close()
             raise OperationalError(

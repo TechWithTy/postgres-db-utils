@@ -7,6 +7,17 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+# Fixture to clear encryption singleton (future-proof, harmless if unused)
+@pytest.fixture(autouse=True)
+def clear_encryptor_singleton():
+    try:
+        from app.core.db_utils.encryption import DataEncryptor
+        DataEncryptor._instance = None
+    except ImportError:
+        pass
+
+pytestmark = pytest.mark.usefixtures("clear_encryptor_singleton")
+
 from app.core.db_utils.sensitive import load_environment_files
 
 class TestLoadEnvironmentFiles:
