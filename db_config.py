@@ -27,15 +27,16 @@ def get_db_url() -> str:
     """
     ssl_mode = getattr(settings.database, 'DB_SSL_MODE', 'require')
     ssl_root_cert = getattr(settings.database, 'DB_SSL_ROOT_CERT', None)
-    
+
     url = f"postgresql+asyncpg://{settings.database.DB_USER}:{settings.database.DB_PASSWORD}@{settings.database.DB_HOST}:{settings.database.DB_PORT}/{settings.database.DB_NAME}"
-    
-    ssl_params = {
-        'ssl': 'require',
-        'sslrootcert': ssl_root_cert
-    } if ssl_mode == 'require' else {}
-    
-    return f"{url}?{'&'.join(f'{k}={v}' for k,v in ssl_params.items())}"
+
+    params = []
+    if ssl_mode == 'require':
+        params.append('ssl=require')
+        if ssl_root_cert:
+            params.append(f'sslrootcert={ssl_root_cert}')
+    query = '&'.join(params)
+    return f"{url}?{query}" if query else url
 
 from sqlalchemy.engine.url import make_url
 
