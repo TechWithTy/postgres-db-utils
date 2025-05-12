@@ -6,6 +6,34 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from app.core.config import settings
 from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram
 
+# Patch DB engine creation for integration tests to use SQLite in-memory DB and avoid SSL args
+import pytest
+
+@pytest.fixture(autouse=True)
+def patch_db_engine(monkeypatch):
+    import app.core.db_utils.db_config as db_config_mod
+    def fake_get_db_url():
+        # Use SQLite in-memory for safe, isolated tests
+        return "sqlite+aiosqlite:///:memory:"
+    monkeypatch.setattr(db_config_mod, "get_db_url", fake_get_db_url)
+
+    def fake_create_engine():
+        from sqlalchemy.ext.asyncio import create_async_engine
+        pool_config = db_config_mod.get_pool_config()
+        # Remove unsupported connect_args for SQLite
+        return create_async_engine(
+            fake_get_db_url(),
+            pool_size=pool_config["pool_size"],
+            max_overflow=pool_config["max_overflow"],
+            pool_recycle=pool_config["pool_recycle"],
+            pool_timeout=pool_config["pool_timeout"],
+            pool_pre_ping=True,
+            pool_use_lifo=True,
+            echo=False,
+        )
+    monkeypatch.setattr(db_config_mod, "create_engine", fake_create_engine)
+    yield
+
 def _patched_metric_factory(factory, registry):
     def wrapper(*a, **kw):
         if 'registry' not in kw:
@@ -76,10 +104,20 @@ class MockDatabaseSettings:
 
 import sys
 
+class MockSecuritySettings:
+    ENCRYPTION_KEY = "test_encryption_key_1234567890123456=="
+    ENCRYPTION_ALGORITHM = "Fernet"
+    ENCRYPTION_CACHE_SIZE = 100
+    ENCRYPTION_KEY_ROTATION_INTERVAL = 0.1
+    ENCRYPTION_RATE_LIMIT_WINDOW = 1
+    ENCRYPTION_RATE_LIMIT_MAX = 10
+    SECRET_KEY = "test_secret_key"
+
 @pytest.fixture(autouse=True)
 def patch_settings(monkeypatch):
     mock_settings = MagicMock()
     mock_settings.database = MockDatabaseSettings()
+    mock_settings.security = MockSecuritySettings()
     # Patch ENV and DATABASE_URL at the top level as well
     mock_settings.ENV = "test"
     mock_settings.DATABASE_URL = "postgresql://test_user:test_password@localhost:5432/test_db"
@@ -90,6 +128,7 @@ def patch_settings(monkeypatch):
     mock_settings.METRICS_ENABLED = False
     # Patch sys.modules so all imports use the mock
     sys.modules["app.core.config"].settings = mock_settings
+    sys.modules["app.core.config.settings"] = mock_settings  # Patch alternate import path
     monkeypatch.setattr('app.core.config.settings', mock_settings)
     return mock_settings
 

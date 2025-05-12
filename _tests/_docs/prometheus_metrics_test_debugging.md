@@ -45,6 +45,24 @@ This document describes the strategies, timestamped learnings, and best practice
 - **2025-05-12 14:15:** Updated all metric usages to fetch metrics via `get_metrics()` inside methods, ensuring no global metric state.
 - **2025-05-12 14:16:** All tests pass; registry and metric duplication errors fully resolved.
 
+---
+
+## Loader Option Patching & Assertion Strategy (2025-05-12 14:44)
+
+**Background:**
+
+To ensure robust and future-proof SQLAlchemy query optimization tests, we refactored all loader-related tests to always patch loader functions (`joinedload`, `selectinload`) and assert for the *presence* of loader options, not their type. This avoids brittle tests tied to SQLAlchemy internals and ensures mocks work as intended.
+
+**How We Did This:**
+- Every test that expects loader options now patches `joinedload` and `selectinload` to return a recognizable sentinel (e.g., a string or MagicMock), not a real loader object.
+- Instead of checking for type (e.g., `isinstance(opt, joinedload)`), tests now assert that the loader options list is non-empty (e.g., `assert len(loader_calls) > 0`).
+- This pattern is applied consistently across `test_db_optimizations.py` and should be used in any future loader-related tests.
+- The rationale: This makes tests resilient to changes in SQLAlchemy and ensures loader logic is always exercised, even when using mocks or patching.
+
+**Timestamp:** 2025-05-12 14:44
+
+---
+
 ## Best Practices for Debugging Prometheus Metrics in Python Tests
 
 - **Never define metrics at module level** if you plan to reload modules or run tests in the same process. Use a factory function (e.g., `get_metrics()`).

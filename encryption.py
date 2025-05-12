@@ -66,14 +66,14 @@ class DataEncryptor:
         self._last_key_rotation_check = time.time()
         self._key_version = 1  # Track key versions for rotation
         self._rate_limit_window = 60  # seconds
-        self._rate_limit_max = 1000  # operations per window
+        self._rate_limit_max = settings.security.ENCRYPTION_RATE_LIMIT_MAX  # operations per window
 
     def _check_and_rotate_key(self):
         """Check if key rotation is needed and perform rotation."""
         current_time = time.time()
-        if current_time - self._last_key_rotation_check > settings.ENCRYPTION_KEY_ROTATION_INTERVAL:
+        if current_time - self._last_key_rotation_check > settings.security.ENCRYPTION_KEY_ROTATION_INTERVAL:
             with self._lock:
-                if current_time - self._last_key_rotation_check > settings.ENCRYPTION_KEY_ROTATION_INTERVAL:
+                if current_time - self._last_key_rotation_check > settings.security.ENCRYPTION_KEY_ROTATION_INTERVAL:
                     self._rotate_key()
                     self._last_key_rotation_check = current_time
 
@@ -127,14 +127,15 @@ class DataEncryptor:
                 logger.warning(f"Slow encryption: {duration:.3f}s")
 
             with self._cache_lock:
-                if len(self._cache) < settings.ENCRYPTION_CACHE_SIZE:
+                if len(self._cache) < settings.security.ENCRYPTION_CACHE_SIZE:
                     self._cache[cache_key] = encrypted
 
             return encrypted
         except Exception as e:
             ENCRYPTION_COUNTER.labels(operation='encrypt', status='error').inc()
             logger.error("Encryption failed", exc_info=True)
-            raise EncryptionError(f"Encryption failed: {str(e)}", cause=e) from e
+            # EncryptionError does not accept 'cause'; only pass message
+            raise EncryptionError(f"Encryption failed: {str(e)}") from e
 
     def decrypt(self, token: str, key_version: int | None) -> str:
         """Decrypt data with cache lookup and version support."""
@@ -163,18 +164,20 @@ class DataEncryptor:
                 logger.warning(f"Slow decryption: {duration:.3f}s")
 
             with self._cache_lock:
-                if len(self._cache) < settings.ENCRYPTION_CACHE_SIZE:
+                if len(self._cache) < settings.security.ENCRYPTION_CACHE_SIZE:
                     self._cache[cache_key] = decrypted
 
             return decrypted
         except InvalidToken as e:
             ENCRYPTION_COUNTER.labels(operation='decrypt', status='invalid_token').inc()
             logger.error("Decryption failed - invalid token", exc_info=True)
-            raise EncryptionError("Invalid encryption token", cause=e) from e
+            # EncryptionError does not accept 'cause'; only pass message
+            raise EncryptionError("Invalid encryption token") from e
         except Exception as e:
             ENCRYPTION_COUNTER.labels(operation='decrypt', status='error').inc()
             logger.error("Decryption failed", exc_info=True)
-            raise EncryptionError(f"Decryption failed: {str(e)}", cause=e) from e
+            # EncryptionError does not accept 'cause'; only pass message
+            raise EncryptionError(f"Decryption failed: {str(e)}") from e
 
     def get_cache_metrics(self) -> dict[str, Any]:
         """Get cache performance metrics."""

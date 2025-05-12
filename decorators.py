@@ -3,6 +3,7 @@ Database operation decorators integrated with core utilities.
 """
 
 import asyncio
+from app.core.db_utils.exceptions.exceptions import ConnectionError
 import functools
 import logging
 import time
@@ -106,9 +107,7 @@ def with_engine_connection(func: Callable) -> Callable:
                 extra={"duration": duration},
             )
             raise ConnectionError(
-                f"Failed to establish database connection: {str(e)}",
-                {"retries": settings.DB_CONNECTION_RETRIES},
-                e,
+                f"Failed to establish database connection: {str(e)}"
             ) from e
 
     return wrapper
@@ -122,10 +121,9 @@ def with_query_optimization(func: Callable) -> Callable:
 
     @functools.wraps(func)
     async def wrapper(model_class, *args, **kwargs) -> Any:
-        optimizer = QueryOptimizer(model_class)
         query = kwargs.get("query")
         if query:
-            kwargs["query"] = optimizer.optimize_queryset(query)
+            kwargs["query"] = QueryOptimizer.optimize_queryset(query)
         return await func(model_class, *args, **kwargs)
 
     return wrapper
@@ -170,10 +168,13 @@ def with_encrypted_parameters(func: Callable) -> Callable:
     @functools.wraps(func)
     async def wrapper(*args, **kwargs) -> Any:
         # Encrypt sensitive kwargs before passing to function
-        encrypted_kwargs = {
-            k: DataEncryptor().encrypt(v) if k in settings.SENSITIVE_FIELDS else v
-            for k, v in kwargs.items()
-        }
+        try:
+            encrypted_kwargs = {
+                k: DataEncryptor().encrypt(v) if k in settings.SENSITIVE_FIELDS else v
+                for k, v in kwargs.items()
+            }
+        except Exception as e:
+            raise DatabaseError(f"Failed to encrypt parameters: {e}") from e
         result = await func(*args, **encrypted_kwargs)
 
         # Decrypt sensitive results before returning
