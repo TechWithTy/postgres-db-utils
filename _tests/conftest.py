@@ -6,18 +6,54 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from app.core.config import settings
 from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram
 
-@pytest.fixture(autouse=True)
-def patch_prometheus_registry(monkeypatch):
-    """Patch Prometheus registry and metric classes to avoid duplicate registration in tests."""
-    registry = CollectorRegistry()
-    monkeypatch.setattr("prometheus_client.REGISTRY", registry)
-    monkeypatch.setattr("prometheus_client.Counter", lambda *a, **kw: Counter(*a, registry=registry, **kw))
-    monkeypatch.setattr("prometheus_client.Gauge", lambda *a, **kw: Gauge(*a, registry=registry, **kw))
-    monkeypatch.setattr("prometheus_client.Histogram", lambda *a, **kw: Histogram(*a, registry=registry, **kw))
+def _patched_metric_factory(factory, registry):
+    def wrapper(*a, **kw):
+        if 'registry' not in kw:
+            kw['registry'] = registry
+        return factory(*a, **kw)
+    return wrapper
 
-# Configure pytest-asyncio
 def pytest_configure(config):
-    config.option.asyncio_fixture_loop_scope = "function"
+    """
+    Patch prometheus_client and prometheus_client.metrics globally for the entire test session,
+    ensuring all metric definitions use a fresh test-local CollectorRegistry and patched metric classes.
+    This prevents duplicated timeseries errors, even on module reloads or dynamic imports.
+    """
+    import sys
+    from prometheus_client import CollectorRegistry
+    import prometheus_client
+
+    registry = CollectorRegistry()
+
+    # Patch main prometheus_client module
+    prometheus_client.REGISTRY = registry
+    prometheus_client.Counter = _patched_metric_factory(prometheus_client.__dict__['Counter'], registry)
+    prometheus_client.Gauge = _patched_metric_factory(prometheus_client.__dict__['Gauge'], registry)
+    prometheus_client.Histogram = _patched_metric_factory(prometheus_client.__dict__['Histogram'], registry)
+
+    # Patch sys.modules for all import paths
+    sys.modules['prometheus_client'].REGISTRY = registry
+    sys.modules['prometheus_client'].Counter = prometheus_client.Counter
+    sys.modules['prometheus_client'].Gauge = prometheus_client.Gauge
+    sys.modules['prometheus_client'].Histogram = prometheus_client.Histogram
+
+    # Patch prometheus_client.metrics if present
+    if hasattr(prometheus_client, "metrics") and "prometheus_client.metrics" in sys.modules:
+        sys.modules["prometheus_client.metrics"].Counter = prometheus_client.Counter
+        sys.modules["prometheus_client.metrics"].Gauge = prometheus_client.Gauge
+        sys.modules["prometheus_client.metrics"].Histogram = prometheus_client.Histogram
+
+    # Remove all existing collectors from the registry (start clean)
+    collectors = list(getattr(registry, '_collector_to_names', {}).keys())
+    for collector in collectors:
+        try:
+            registry.unregister(collector)
+        except KeyError:
+            pass
+
+    # Configure pytest-asyncio
+    import asyncio
+    # Removed problematic _loop_factory override (caused RecursionError with pytest-asyncio)
 
 # * Robust fixture to patch settings.database for all tests
 class MockDatabaseSettings:

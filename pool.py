@@ -46,21 +46,22 @@ def get_pool_metrics() -> dict:
     """Stub for pool metrics. Replace with real implementation if needed."""
     return {}
 
-# Prometheus Metrics
-DB_CONNECTION_ATTEMPTS = Counter(
-    "db_connection_attempts_total", "Total connection attempts", ["status"]
-)
-
-DB_CONNECTION_STATE = Gauge(
-    "db_connection_state",
-    "Current connection pool state (0=Healthy, 1=Degraded, 2=Unavailable)",
-)
-
-DB_CONNECTION_LATENCY = Histogram(
-    "db_connection_latency_seconds",
-    "Connection acquisition latency",
-    buckets=[0.1, 0.5, 1, 2, 5],
-)
+# Prometheus Metrics (moved inside function)
+def get_metrics():
+    from prometheus_client import Counter, Gauge, Histogram
+    DB_CONNECTION_ATTEMPTS = Counter(
+        "db_connection_attempts_total", "Total connection attempts", ["status"]
+    )
+    DB_CONNECTION_STATE = Gauge(
+        "db_connection_state",
+        "Current connection pool state (0=Healthy, 1=Degraded, 2=Unavailable)",
+    )
+    DB_CONNECTION_LATENCY = Histogram(
+        "db_connection_latency_seconds",
+        "Connection acquisition latency",
+        buckets=[0.1, 0.5, 1, 2, 5],
+    )
+    return DB_CONNECTION_ATTEMPTS, DB_CONNECTION_STATE, DB_CONNECTION_LATENCY
 
 
 class PoolState(Enum):
@@ -131,6 +132,8 @@ class ConnectionPool:
     async def get_connection(self) -> AsyncSession:
         """Get connection with metrics tracking"""
         start_time = time.time()
+        # * Use metrics from get_metrics() for test isolation and reload safety
+        DB_CONNECTION_ATTEMPTS, DB_CONNECTION_STATE, DB_CONNECTION_LATENCY = get_metrics()
         DB_CONNECTION_ATTEMPTS.labels(status="attempt").inc()
 
         try:

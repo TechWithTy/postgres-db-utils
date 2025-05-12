@@ -50,9 +50,27 @@ class TestConnectionPoolMonitor:
         # assert # monitor.metrics  # Removed: symbol not defined['total_connections'] == 0  # Removed: symbol not defined
         # assert # monitor.metrics  # Removed: symbol not defined['active_connections'] == 0  # Removed: symbol not defined
     
+def clear_prometheus_registry():
+    import prometheus_client
+    collectors = list(getattr(prometheus_client.REGISTRY, '_collector_to_names', {}).keys())
+    for collector in collectors:
+        try:
+            prometheus_client.REGISTRY.unregister(collector)
+        except KeyError:
+            pass
+
+class TestConnectionPoolMonitor:
+    def test_monitor_initial_state(self):
+        """Test monitor initializes with zero values."""
+        # monitor = ConnectionPoolMonitor()  # Removed: symbol not defined
+        # assert # monitor.metrics  # Removed: symbol not defined['total_connections'] == 0  # Removed: symbol not defined
+        # assert # monitor.metrics  # Removed: symbol not defined['active_connections'] == 0  # Removed: symbol not defined
+    
+    @pytest.mark.forked
     def test_connection_tracking(self, mock_env, patch_settings):
         """Test connection acquisition/release tracking via pool metrics."""
         import importlib
+        clear_prometheus_registry()  # Full unregister before reload
         from app.core.db_utils import pool as pool_module
         pool_module.ConnectionPool._instance = None  # Reset singleton
         import app.core.db_utils.pool
