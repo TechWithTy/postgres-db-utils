@@ -5,7 +5,7 @@ from celery.result import AsyncResult
 from fastapi.security import APIKeyHeader, OAuth2PasswordBearer
 
 from app.api.utils.credits.credits import call_function_with_credits
-from app.core.celery.decorators import celery_task
+
 from app.core.db_utils.decorators import (
     retry_decorator,
     with_encrypted_parameters,
@@ -28,9 +28,9 @@ from app.core.db_utils.workers.utils.index import (
     _build_user_auth_component,
     circuit_breaker_decorator,
 )
-from app.core.redis.client import RedisClient
-from app.core.redis.decorators import cache as cache_decorator
-from app.core.redis.rate_limit import service_rate_limit, verify_and_limit
+from app.core.valkey_core.client import client as RedisClient
+from app.core.valkey_core.cache.decorators import cache as cache_decorator
+from app.core.valkey_core.limiting.rate_limit import service_rate_limit, verify_and_limit
 from app.core.telemetry.decorators import (
     measure_performance,
     trace_function,

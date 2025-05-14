@@ -1,3 +1,44 @@
+# Pulsar Best Practices for This Project
+
+This section documents production-grade patterns for using Apache Pulsar with Valkey, Celery, and FastAPI in this codebase. It reflects your actual structure and code idioms.
+
+---
+
+## 1. Valkey <-> Pulsar Bridging
+- Use async workers to forward events from Valkey queues to Pulsar topics (`valkey_to_pulsar_forwarder`).
+- Use async consumers to enqueue Pulsar messages into Valkey for Celery/worker consumption (`pulsar_to_valkey_enqueue`).
+- Support replay, buffering, and hybrid fan-out for high-throughput, reliable event delivery.
+
+## 2. Prometheus Metrics
+- Track Pulsar forwarding latency and event counts with Prometheus metrics (e.g., `PULSAR_FORWARD_LATENCY`, `PULSAR_EVENTS_FORWARDED`).
+- Label metrics with topic and status for observability and alerting.
+
+## 3. Error Handling & Retries
+- Use robust try/except blocks around all I/O.
+- Log errors with context (topic, queue, exception).
+- Use async sleep between retries to avoid hot loops.
+- Consider circuit breaker or retry decorators for critical forwarding/consuming logic.
+
+## 4. Async Patterns
+- All queue and Pulsar operations are fully async for maximum throughput and non-blocking behavior.
+- Use batch operations (e.g., `send_batch`) for efficiency.
+
+## 5. Role/Permission Validation
+- Use decorators (e.g., `permission_role_guard`) to enforce RBAC on worker tasks and endpoints.
+- Log and raise HTTP 403 on permission failures, with sanitized logs.
+
+## 6. Circuit Breaker & Retry Patterns
+- Use retry decorators (e.g., with `tenacity` or custom) for transient Pulsar/Valkey failures.
+- Use circuit breaker patterns for repeated failures to avoid cascading outages.
+- Log all retry/circuit events for monitoring.
+
+## 7. Failover & Monitoring
+- Monitor queue depths, error rates, and latency via Prometheus/Grafana.
+- Alert on high error rates, slow forwards, or queue build-up.
+- Periodically test failover and replay scenarios.
+
+---
+
 # Pulsar Task Best Practices
 
 ## Core Concepts
