@@ -233,8 +233,6 @@ async def _generic_post_endpoint(
     payload: ExamplePayload,  # Use a concrete Pydantic model
     verified=Depends(get_verified_user) if JobConfig.security.auth_type_required else None,
     user=Depends(require_scope(JobConfig.security.user_permissions_required)) if JobConfig.security.user_permissions_required else None,
-    @encrypt_incoming()
-    @decrypt_outgoing()
     db=Depends(get_db_client()) if JobConfig.security.db_enabled else None,
     roles=Depends(roles_required(JobConfig.security.permission_roles_required)) if JobConfig.security.permission_roles_required else None,
     ip_ok=Depends(verify_ip_whitelisted) if getattr(JobConfig.security, 'ip_whitelist_enabled', False) else None,
@@ -245,34 +243,100 @@ async def _generic_post_endpoint(
     Replace `ExamplePayload` with your specific Pydantic model as needed.
     """
 
-    # 1. Rate limiting per user (enum-driven, DRY)
+    # --- 1. Input validation (Pydantic/FastAPI) ---
+    # * Already handled by FastAPI and Pydantic
+
+    # --- 2. Observability decorators ---
+    # * Already handled by @measure_performance, @trace_function, @track_errors, and @log_endpoint_event
+
+    # --- 3. Authentication/dependencies ---
+    # * Already handled by Depends and FastAPI
+
+    # --- 4. Rate limiting (fail fast, DRY) ---
     resource_id = payload.resource_id
     token_bucket_key = JobConfig.tracing.trace_label + f":{verified['user'].id}:{resource_id}"
     rl = JobConfig.rate_limit
     match rl.algo:
-        # ... (rest of endpoint logic remains unchanged)
-        pass
+        case RateLimitAlgo.token_bucket:
+            allowed = await is_allowed_token_bucket(
+                token_bucket_key,
+                rl.token_bucket.rate_limit,
+                rl.token_bucket.refill_rate,
+                rl.token_bucket.rate_window
+            )
+        case RateLimitAlgo.fixed_window:
+            allowed = await is_allowed_fixed_window(
+                token_bucket_key,
+                rl.fixed_window.limit,
+                rl.fixed_window.window
+            )
+        case RateLimitAlgo.sliding_window:
+            allowed = await is_allowed_sliding_window(
+                token_bucket_key,
+                rl.sliding_window.limit,
+                rl.sliding_window.window
+            )
+        case RateLimitAlgo.throttle:
+            allowed = await is_allowed_throttle(
+                token_bucket_key,
+                rl.throttle.interval
+            )
+        case RateLimitAlgo.debounce:
+            allowed = await is_allowed_debounce(
+                token_bucket_key,
+                rl.debounce.interval
+            )
+        case _:
+            raise HTTPException(status_code=500, detail="Unknown rate limit algorithm")
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"Rate limit exceeded for {JobConfig.endpoint_description}"
+                + (
+                    f" try again in {rl.rate_window} seconds"
+                    if getattr(rl, 'rate_window', None)
+                    else ""
+                )
+                + f" (algo: {rl.algo})"
+            )
+        )
 
-    # 2. Caching (config-driven, DRY)
-    # * Use get_or_set_cache to cache expensive computation or DB call
+    # --- 5. Security enforcement (MFA, IP whitelist, roles) ---
+    if JobConfig.security.mfa_required and not mfa_service:
+        raise HTTPException(status_code=401, detail="MFA required")
+    if getattr(JobConfig.security, 'ip_whitelist_enabled', False) and not ip_ok:
+        raise HTTPException(status_code=403, detail="IP not whitelisted")
+    # (Add any additional permission/role checks here)
+
+    # --- 6. Caching (return early if hit, config-driven) ---
     cache_key = f"{JobConfig.endpoint_name}:{resource_id}"
     cache_ttl = JobConfig.cache.default.cache_ttl
     def expensive_operation():
         # ...simulate DB or business logic
         return {"result": "expensive result"}
     cached_result = get_or_set_cache(cache_key, expensive_operation, ttl=cache_ttl)
-    # * This pattern ensures all caching is DRY, type-safe, and config-driven
+    # * If cache hit, return early (optional, depends on business logic)
+    # if cached_result:
+    #     return cached_result
 
-    # 3. Credits enforcement (config-driven)
-    # * Enforce required credits before business logic
+    # --- 7. Credits enforcement (after cache, before business logic) ---
     call_function_with_credits(
         user_id=verified['user'].id,
         required_credits=JobConfig.required_credits,
         endpoint=JobConfig.endpoint_name,
     )
-    # * This ensures all credit logic is centralized and DRY
 
-    # 4. Encryption/decryption (config-driven)
+    # --- 8. Business logic, DB, idempotency, etc. ---
+    # ...perform main operation, enqueue tasks, etc.
+
+    # --- 9. Idempotency (if needed) ---
+    # ...implement idempotency logic here if required
+
+    # --- 10. Task offloading (handled by decorator) ---
+    # * Already handled by @pulsar_task decorator
+
+    # --- 11. Encryption/decryption (always last) ---
     if JobConfig.encryption.enable_encryption:
         # Encrypt sensitive fields as needed (handled by decorator or here)
         pass  # Encryption logic or decorator already applied
@@ -280,28 +344,9 @@ async def _generic_post_endpoint(
         # Decrypt sensitive fields as needed (handled by decorator or here)
         pass
 
-    # 3. MFA enforcement (config-driven)
-    if JobConfig.security.mfa_required and not mfa_service:
-        raise HTTPException(status_code=401, detail="MFA required")
-
-    # 4. IP whitelist enforcement (config-driven)
-    if getattr(JobConfig.security, 'ip_whitelist_enabled', False) and not ip_ok:
-        raise HTTPException(status_code=403, detail="IP not whitelisted")
-
-    # 5. Tracing (config-driven)
-    if hasattr(JobConfig, "tracing") and JobConfig.tracing.function_name:
-        # Optionally add tracing logic here
-        pass
-
-    # ...rest of endpoint logic (credits, idempotency, etc.)
-    # Encryption should always be applied last per best practices
-
-    # Example secure logging usage
+    # --- 12. Secure logging (last, redact sensitive info) ---
     logger = get_secure_logger(__name__)
     logger.info("Endpoint logic executed", user_id=verified['user'].id, resource_id=resource_id)
-
-
-# Conditionally wrap with encryption/decryption based on config
 
     """
     Example of a config-driven, globally applicable POST endpoint pattern.
