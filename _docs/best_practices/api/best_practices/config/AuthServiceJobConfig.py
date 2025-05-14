@@ -7,8 +7,10 @@ Production-optimized config for authentication-related routes, using endpoint_co
 """
 
 from pydantic_settings import BaseSettings
-from pydantic import  Field
+from pydantic import Field
 from app.core.db_utils._docs.best_practices.api.best_practices.JobConfig import JobConfig, EndpointConfig, SecurityConfig
+from app.models._data.user.security.role_types import RoleTypeEnum
+from app.models._data.user.security.permissions_models import PermissionEnum
 
 # --- AuthService-specific config types ---
 class AuthServiceCacheConfig:
@@ -36,7 +38,6 @@ class AuthServiceMetricsConfig:
     login_histogram_description: str = "Auth login latency (seconds)"
     login_histogram_label: str = "user_id"
     signup_counter_name: str = "auth_signup_total"
-
 
 class AuthServiceSecurityConfig(SecurityConfig, BaseSettings):
     """
@@ -75,7 +76,11 @@ class AuthServiceJobConfig(JobConfig):
     # --- Per-endpoint config: override global defaults as needed ---
     endpoint_configs: dict[str, EndpointConfig] = Field(default_factory=lambda: {
         "sign_up": EndpointConfig(
-            auth=SecurityConfig(permission_roles_required=["guest"], user_permissions_required=[], mfa_required=False),
+            auth=SecurityConfig(
+                permission_roles_required=[RoleTypeEnum.guest],
+                user_permissions_required=[],
+                mfa_required=False
+            ),
             cache=AuthServiceCacheConfig(cache_ttl=10, cache_size=5),
             rate_limit=AuthServiceRateLimitConfig(sign_up_limit=5, window_seconds=60),
             circuit_breaker=AuthServiceCircuitBreakerConfig(circuit_breaker_threshold=1),
@@ -88,7 +93,11 @@ class AuthServiceJobConfig(JobConfig):
             endpoint_description="User sign-up endpoint"
         ),
         "sign_in": EndpointConfig(
-            auth=SecurityConfig(permission_roles_required=["guest", "user"], user_permissions_required=[], mfa_required=False),
+            auth=SecurityConfig(
+                permission_roles_required=[RoleTypeEnum.guest, RoleTypeEnum.user],
+                user_permissions_required=[],
+                mfa_required=False
+            ),
             cache=AuthServiceCacheConfig(cache_ttl=5, cache_size=2),
             rate_limit=AuthServiceRateLimitConfig(sign_in_limit=10, window_seconds=60),
             circuit_breaker=AuthServiceCircuitBreakerConfig(circuit_breaker_threshold=1),
@@ -101,7 +110,11 @@ class AuthServiceJobConfig(JobConfig):
             endpoint_description="User sign-in endpoint"
         ),
         "reset_password": EndpointConfig(
-            auth=SecurityConfig(permission_roles_required=["user"], user_permissions_required=["reset:password"], mfa_required=True),
+            auth=SecurityConfig(
+                permission_roles_required=[RoleTypeEnum.user],
+                user_permissions_required=[PermissionEnum.reset_password],
+                mfa_required=True
+            ),
             cache=AuthServiceCacheConfig(cache_ttl=1, cache_size=1),
             rate_limit=AuthServiceRateLimitConfig(reset_password_limit=2, window_seconds=300),
             circuit_breaker=AuthServiceCircuitBreakerConfig(circuit_breaker_threshold=2),
@@ -114,7 +127,11 @@ class AuthServiceJobConfig(JobConfig):
             endpoint_description="User password reset endpoint"
         ),
         "change_password": EndpointConfig(
-            auth=SecurityConfig(permission_roles_required=["user", "admin"], user_permissions_required=["change:password"], mfa_required=True),
+            auth=SecurityConfig(
+                permission_roles_required=[RoleTypeEnum.user, RoleTypeEnum.admin],
+                user_permissions_required=[PermissionEnum.change_password],
+                mfa_required=True
+            ),
             cache=AuthServiceCacheConfig(cache_ttl=1, cache_size=1),
             rate_limit=AuthServiceRateLimitConfig(reset_password_limit=2, window_seconds=300),
             circuit_breaker=AuthServiceCircuitBreakerConfig(circuit_breaker_threshold=2),
@@ -127,7 +144,11 @@ class AuthServiceJobConfig(JobConfig):
             endpoint_description="User password change endpoint"
         ),
         "get_user_info": EndpointConfig(
-            auth=SecurityConfig(permission_roles_required=["user"], user_permissions_required=["read:user"], mfa_required=False),
+            auth=SecurityConfig(
+                permission_roles_required=[RoleTypeEnum.user],
+                user_permissions_required=[PermissionEnum.read_user],
+                mfa_required=False
+            ),
             cache=AuthServiceCacheConfig(cache_ttl=60, cache_size=20),
             tracing=AuthServiceTracingConfig(function_name="get_user_info"),
             metrics=AuthServiceMetricsConfig(login_histogram_name="user_info_latency"),
@@ -138,7 +159,11 @@ class AuthServiceJobConfig(JobConfig):
             endpoint_description="Get user info endpoint"
         ),
         "admin_only": EndpointConfig(
-            auth=SecurityConfig(permission_roles_required=["admin", "super_admin"], user_permissions_required=["admin:all"], mfa_required=True),
+            auth=SecurityConfig(
+                permission_roles_required=[RoleTypeEnum.admin, RoleTypeEnum.super_admin],
+                user_permissions_required=[PermissionEnum.admin_all],
+                mfa_required=True
+            ),
             cache=AuthServiceCacheConfig(cache_ttl=0, cache_size=0),
             tracing=AuthServiceTracingConfig(function_name="admin_only"),
             metrics=AuthServiceMetricsConfig(login_histogram_name="admin_latency"),
@@ -149,7 +174,11 @@ class AuthServiceJobConfig(JobConfig):
             endpoint_description="Admin-only endpoint"
         ),
         "health": EndpointConfig(
-            auth=SecurityConfig(permission_roles_required=["guest"], user_permissions_required=[], mfa_required=False),
+            auth=SecurityConfig(
+                permission_roles_required=[RoleTypeEnum.guest],
+                user_permissions_required=[],
+                mfa_required=False
+            ),
             cache=AuthServiceCacheConfig(cache_ttl=1, cache_size=1),
             tracing=AuthServiceTracingConfig(function_name="health"),
             metrics=AuthServiceMetricsConfig(login_histogram_name="health_latency"),

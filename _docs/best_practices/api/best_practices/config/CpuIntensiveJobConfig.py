@@ -9,6 +9,8 @@ Production-optimized config for CPU-bound endpoints, using endpoint_configs for 
 from pydantic_settings import BaseSettings
 from pydantic import Field
 from app.core.db_utils._docs.best_practices.api.best_practices.JobConfig import JobConfig, EndpointConfig, SecurityConfig
+from app.models._data.user.security.role_types import RoleTypeEnum
+from app.models._data.user.security.permissions_models import PermissionEnum
 
 # --- CPU-Intensive-specific config types ---
 class CpuIntensiveCacheConfig:
@@ -54,6 +56,23 @@ class CpuIntensiveJobConfig(JobConfig):
     Main config for CPU-intensive endpoints.
     - Per-endpoint resource, cache, rate limit, circuit breaker, tracing, metrics, security, encryption, etc.
     - Global service-level config fields (optional, for legacy or fallback)
+
+    Example usage of RoleTypeEnum and PermissionEnum for endpoint security:
+
+        from app.models._data.user.security.role_types import RoleTypeEnum
+        from app.models._data.user.security.permissions_models import PermissionEnum
+        ...
+        endpoint_configs = {
+            "cpu_hash": EndpointConfig(
+                auth=SecurityConfig(
+                    permission_roles_required=[RoleTypeEnum.user],
+                    user_permissions_required=[PermissionEnum.run_cpu],
+                    mfa_required=False
+                ),
+                ...
+            ),
+            ...
+        }
     """
     endpoint_name: str = "cpu_task"
     endpoint_description: str = "CPU-intensive Task Endpoint"
@@ -69,26 +88,26 @@ class CpuIntensiveJobConfig(JobConfig):
     # --- Per-endpoint config: override global defaults as needed ---
     endpoint_configs: dict[str, EndpointConfig] = Field(default_factory=lambda: {
         "cpu_hash": EndpointConfig(
-            auth=SecurityConfig(permission_roles_required=["user"], user_permissions_required=["run:cpu"], mfa_required=False),
+            auth=SecurityConfig(permission_roles_required=[RoleTypeEnum.user], user_permissions_required=[PermissionEnum.run_cpu], mfa_required=False),
             cache=CpuIntensiveCacheConfig(cache_ttl=10, cache_size=2),
             rate_limit=CpuIntensiveRateLimitConfig(cpu_task_limit=5, window_seconds=60),
             circuit_breaker=CpuIntensiveCircuitBreakerConfig(circuit_breaker_threshold=1),
             tracing=CpuIntensiveTracingConfig(function_name="cpu_hash"),
             metrics=CpuIntensiveMetricsConfig(cpu_histogram_name="cpu_hash_latency"),
-            security=CpuIntensiveSecurityConfig(allowed_roles=["user"]),
+            security=CpuIntensiveSecurityConfig(allowed_roles=[RoleTypeEnum.user]),
             encryption=CpuIntensiveEncryptionConfig(enable_encryption=False),
             required_credits=1,
             endpoint_name="cpu_hash",
             endpoint_description="CPU hash computation endpoint"
         ),
         "cpu_benchmark": EndpointConfig(
-            auth=SecurityConfig(permission_roles_required=["admin"], user_permissions_required=["benchmark:cpu"], mfa_required=True),
+            auth=SecurityConfig(permission_roles_required=[RoleTypeEnum.admin], user_permissions_required=[PermissionEnum.benchmark_cpu], mfa_required=True),
             cache=CpuIntensiveCacheConfig(cache_ttl=2, cache_size=1),
             rate_limit=CpuIntensiveRateLimitConfig(cpu_task_limit=2, window_seconds=120),
             circuit_breaker=CpuIntensiveCircuitBreakerConfig(circuit_breaker_threshold=1),
             tracing=CpuIntensiveTracingConfig(function_name="cpu_benchmark"),
             metrics=CpuIntensiveMetricsConfig(cpu_histogram_name="cpu_benchmark_latency"),
-            security=CpuIntensiveSecurityConfig(allowed_roles=["admin"], mfa_required=True),
+            security=CpuIntensiveSecurityConfig(allowed_roles=[RoleTypeEnum.admin], mfa_required=True),
             encryption=CpuIntensiveEncryptionConfig(enable_encryption=False),
             required_credits=2,
             endpoint_name="cpu_benchmark",

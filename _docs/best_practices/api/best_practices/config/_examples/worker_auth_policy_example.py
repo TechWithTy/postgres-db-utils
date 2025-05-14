@@ -5,7 +5,7 @@ FastAPI Example: Auth Policy Endpoint with Unified API Worker
 - All security, rate limiting, idempotency, and logging handled by the worker
 - Shows how to adjust JobConfig for endpoint-specific policies
 """
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request,Depends
 from pydantic import BaseModel
 from app.core.db_utils._docs.best_practices.api.best_practices.JobConfig import JobConfig
 from app.core.db_utils._docs.best_practices.api.best_practices.worker import api_worker
