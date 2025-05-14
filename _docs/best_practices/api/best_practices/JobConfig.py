@@ -6,6 +6,9 @@
 
 from enum import Enum
 
+from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseSettings
+
 
 # ---
 # config/cache.default.py
@@ -137,7 +140,6 @@ class CacheConfig(BaseModel):
 
 # config/security.py
 
-from pydantic import BaseSettings
 
 class SecurityConfig(BaseSettings):
     permission_roles_required: list[str] = ["admin", "db_user"]
@@ -154,13 +156,30 @@ class EncryptionConfig(BaseSettings):
     enable_encryption: bool = True
     enable_decryption: bool = True
 
+class EndpointConfig(BaseModel):
+    auth: SecurityConfig
+    cache: CacheConfig | None = None
+    rate_limit: RateLimitConfig | None = None
+    circuit_breaker: CircuitBreakerConfig | None = None
+    tracing: TracingConfig | None = None
+    metrics: MetricsConfig | None = None
+    security: SecurityConfig | None = None
+    encryption: EncryptionConfig | None = None
+    required_credits: int = 0
+    endpoint_name: str | None = None
+    endpoint_description: str | None = None
 
 class JobConfig(BaseModel):
+    """
+    Base config for all jobs/services.
+    - Supports per-endpoint logic via endpoint_configs (auth, rate limit, etc.)
+    - Each endpoint should be explicitly configured; global defaults apply if not set per-endpoint.
+    """
+    model_config = ConfigDict(extra="forbid")
     endpoint_name: str = "io_job"
     endpoint_description: str = "IO Job"
     required_credits: int = 1  # * Credits required per job
     rate_limit: RateLimitConfig = RateLimitConfig()
-    # pooling: PoolingConfig = PoolingConfig()
     circuit_breaker: CircuitBreakerConfig = CircuitBreakerConfig()
     cache: CacheConfig = CacheConfig()
     security: SecurityConfig = SecurityConfig()
@@ -168,5 +187,7 @@ class JobConfig(BaseModel):
     tracing: TracingConfig = TracingConfig()
     metrics: MetricsConfig = MetricsConfig()
     pulsar_labeling: PulsarLabelingConfig = PulsarLabelingConfig()
+    # --- Per-endpoint config: all endpoint-specific logic goes here ---
+    endpoint_configs: dict[str, EndpointConfig] = Field(default_factory=dict)
 
 

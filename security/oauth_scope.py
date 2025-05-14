@@ -19,6 +19,47 @@ def require_scope(required_scope: str):
 # --- Dependency helpers ---
 from app.core.third_party_integrations.supabase_home.sdk.auth import SupabaseAuthService
 from app.core.third_party_integrations.supabase_home.client import get_supabase_client
+from starlette.requests import Request
+from starlette.responses import Response
+from starlette.exceptions import HTTPException
+from starlette.middleware.cors import CORSMiddleware
+from starlette_csrf import CSRFMiddleware
+import os
+
+# --- CORS & CSRF Middleware Utilities ---
+
+def get_cors_middleware_config() -> dict:
+    """
+    Returns a dict of CORS middleware keyword arguments using env/config.
+    Use with Starlette or FastAPI:
+        app.add_middleware(CORSMiddleware, **get_cors_middleware_config())
+    or
+        Middleware(CORSMiddleware, **get_cors_middleware_config())
+    """
+    return dict(
+        allow_origins=os.getenv("CORS_ALLOWED_ORIGINS", "*").split(","),
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+
+def get_csrf_middleware_config() -> dict:
+    """
+    Returns a dict of CSRF middleware keyword arguments using env/config.
+    Use with Starlette or FastAPI:
+        app.add_middleware(CSRFMiddleware, **get_csrf_middleware_config())
+    or
+        Middleware(CSRFMiddleware, **get_csrf_middleware_config())
+    """
+    return dict(
+        secret=os.getenv("CSRF_SECRET", "__CHANGE_ME__"),
+        cookie_secure=os.getenv("CSRF_COOKIE_SECURE", "True") == "True",
+        cookie_samesite=os.getenv("CSRF_COOKIE_SAMESITE", "lax"),
+        header_name=os.getenv("CSRF_HEADER_NAME", "x-csrftoken"),
+        cookie_name=os.getenv("CSRF_COOKIE_NAME", "csrftoken"),
+    )
+
 
 async def get_auth_service():
     client = await get_supabase_client()

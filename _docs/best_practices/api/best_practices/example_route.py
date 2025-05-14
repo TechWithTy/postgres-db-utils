@@ -27,6 +27,7 @@ from app.core.db_utils.security.encryption import encrypt_incoming, decrypt_outg
 import json
 from app.core.pulsar.decorators import pulsar_task
 from app.core.db_utils.security.log_sanitization import get_secure_logger, log_endpoint_event
+import uuid
 router = APIRouter()
 
 from app.core.valkey_core.client import ValkeyClient
@@ -39,6 +40,14 @@ class ExamplePayload(BaseModel):
     resource_id: str
     secret_value: str
     other_data: str
+
+class ExampleSuccessResponse(BaseModel):
+    success: bool
+    message: str
+    data: dict
+
+class ExampleErrorResponse(BaseModel):
+    detail: str
 
 @measure_performance(threshold_ms=100.0, level="warn", record_metric=True)
 @trace_function(name=JobConfig.tracing.function_name, attributes={"route": JobConfig.endpoint_name}, record_metrics=True, capture_exceptions=True)
@@ -61,7 +70,11 @@ async def generic_post_endpoint(
     roles=Depends(roles_required(JobConfig.security.permission_roles_required)) if JobConfig.security.permission_roles_required else None,
     ip_ok=Depends(verify_ip_whitelisted) if getattr(JobConfig.security, 'ip_whitelist_enabled', False) else None,
     mfa_service: MFAService = Depends(get_mfa_service) if getattr(JobConfig.security, 'mfa_required', False) else None,
-):
+) -> ExampleSuccessResponse:
+    # --- Tracing IDs ---
+    request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    response_id = str(uuid.uuid4())
+
     """
     Config-driven, production-ready POST endpoint pattern.
     Replace ExamplePayload with your Pydantic model as needed.
@@ -79,51 +92,56 @@ async def generic_post_endpoint(
     resource_id = payload.resource_id
     token_bucket_key = JobConfig.tracing.trace_label + f":{verified['user'].id}:{resource_id}"
     rl = JobConfig.rate_limit
-    match rl.algo:
-        case RateLimitAlgo.token_bucket:
-            allowed = await is_allowed_token_bucket(
-                token_bucket_key,
-                rl.token_bucket.rate_limit,
-                rl.token_bucket.refill_rate,
-                rl.token_bucket.rate_window
-            )
-        case RateLimitAlgo.fixed_window:
-            allowed = await is_allowed_fixed_window(
-                token_bucket_key,
-                rl.fixed_window.limit,
-                rl.fixed_window.window
-            )
-        case RateLimitAlgo.sliding_window:
-            allowed = await is_allowed_sliding_window(
-                token_bucket_key,
-                rl.sliding_window.limit,
-                rl.sliding_window.window
-            )
-        case RateLimitAlgo.throttle:
-            allowed = await is_allowed_throttle(
-                token_bucket_key,
-                rl.throttle.interval
-            )
-        case RateLimitAlgo.debounce:
-            allowed = await is_allowed_debounce(
-                token_bucket_key,
-                rl.debounce.interval
-            )
-        case _:
-            raise HTTPException(status_code=500, detail="Unknown rate limit algorithm")
-    if not allowed:
-        raise HTTPException(
-            status_code=429,
-            detail=(
-                f"Rate limit exceeded for {JobConfig.endpoint_description}"
-                + (
-                    f" try again in {rl.rate_window} seconds"
-                    if getattr(rl, 'rate_window', None)
-                    else ""
+    try:
+        match rl.algo:
+            case RateLimitAlgo.token_bucket:
+                allowed = await is_allowed_token_bucket(
+                    token_bucket_key,
+                    rl.token_bucket.rate_limit,
+                    rl.token_bucket.refill_rate,
+                    rl.token_bucket.rate_window
                 )
-                + f" (algo: {rl.algo})"
+            case RateLimitAlgo.fixed_window:
+                allowed = await is_allowed_fixed_window(
+                    token_bucket_key,
+                    rl.fixed_window.limit,
+                    rl.fixed_window.window
+                )
+            case RateLimitAlgo.sliding_window:
+                allowed = await is_allowed_sliding_window(
+                    token_bucket_key,
+                    rl.sliding_window.limit,
+                    rl.sliding_window.window
+                )
+            case RateLimitAlgo.throttle:
+                allowed = await is_allowed_throttle(
+                    token_bucket_key,
+                    rl.throttle.interval
+                )
+            case RateLimitAlgo.debounce:
+                allowed = await is_allowed_debounce(
+                    token_bucket_key,
+                    rl.debounce.interval
+                )
+            case _:
+                raise HTTPException(status_code=500, detail="Unknown rate limit algorithm")
+        if not allowed:
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    f"Rate limit exceeded for {JobConfig.endpoint_description}"
+                    + (
+                        f" try again in {rl.rate_window} seconds"
+                        if getattr(rl, 'rate_window', None)
+                        else ""
+                    )
+                    + f" (algo: {rl.algo})"
+                )
             )
-        )
+    except Exception as exc:
+        logger = get_secure_logger(__name__)
+        logger.error("Rate limiting failed", error=str(exc), user_id=verified['user'].id, resource_id=resource_id, request_id=request_id, response_id=response_id)
+        raise HTTPException(status_code=500, detail="Internal rate limiting error")
 
     # --- 5. Security enforcement (MFA, IP whitelist, roles/permissions) ---
     if JobConfig.security.mfa_required and not mfa_service:
@@ -139,13 +157,18 @@ async def generic_post_endpoint(
     idempotency_key = request.headers.get('Idempotency-Key')
     IDEMPOTENCY_TTL = 60  # seconds
     if idempotency_key:
-        # Check if key exists (duplicate request)
-        cached_response = await valkey_client.get(idempotency_key)
-        if cached_response is not None:
-            # * Return cached response (deserialize if needed)
-            return json.loads(cached_response)
-        # Mark as processing (setex with short TTL)
-        await valkey_client.set(idempotency_key, json.dumps({'status': 'processing'}), ex=IDEMPOTENCY_TTL)
+        try:
+            # Check if key exists (duplicate request)
+            cached_response = await valkey_client.get(idempotency_key)
+            if cached_response is not None:
+                # * Return cached response (deserialize if needed)
+                return json.loads(cached_response)
+            # Mark as processing (setex with short TTL)
+            await valkey_client.set(idempotency_key, json.dumps({'status': 'processing'}), ex=IDEMPOTENCY_TTL)
+        except Exception as exc:
+            logger = get_secure_logger(__name__)
+            logger.error("Valkey idempotency check failed", error=str(exc), user_id=verified['user'].id, resource_id=resource_id, request_id=request_id, response_id=response_id)
+            raise HTTPException(status_code=500, detail="Internal cache error")
 
     # --- 7. Caching (return early if hit, config-driven) ---
     cache_key = f"{JobConfig.endpoint_name}:{resource_id}"
@@ -153,10 +176,15 @@ async def generic_post_endpoint(
     def expensive_operation():
         # ...simulate DB or business logic
         return {"result": "expensive result", "success": True}
-    cached_result = await get_or_set_cache(cache_key, expensive_operation, ttl=cache_ttl)
-    # * If cache hit, return early (recommended for DRY/efficiency)
-    if cached_result:
-        return cached_result
+    try:
+        cached_result = await get_or_set_cache(cache_key, expensive_operation, ttl=cache_ttl)
+        # * If cache hit, return early (recommended for DRY/efficiency)
+        if cached_result:
+            return cached_result
+    except Exception as exc:
+        logger = get_secure_logger(__name__)
+        logger.error("Cache retrieval failed", error=str(exc), user_id=verified['user'].id, resource_id=resource_id, request_id=request_id, response_id=response_id)
+        raise HTTPException(status_code=500, detail="Internal cache error")
 
     # --- 8. Business logic, DB, idempotency, etc. ---
     # ...perform main operation, enqueue tasks, etc.
@@ -165,11 +193,16 @@ async def generic_post_endpoint(
 
     # --- 9. Credits enforcement (only on success) ---
     if business_result.get("success"):
-        call_function_with_credits(
-            user_id=verified['user'].id,
-            required_credits=JobConfig.required_credits,
-            endpoint=JobConfig.endpoint_name,
-        )
+        try:
+            call_function_with_credits(
+                user_id=verified['user'].id,
+                required_credits=JobConfig.required_credits,
+                endpoint=JobConfig.endpoint_name,
+            )
+        except Exception as exc:
+            logger = get_secure_logger(__name__)
+            logger.error("Credits deduction failed", error=str(exc), user_id=verified['user'].id, resource_id=resource_id, request_id=request_id, response_id=response_id)
+            raise HTTPException(status_code=500, detail="Internal credits error")
 
     # --- 10. Encryption/decryption (always last) ---
     if JobConfig.encryption.enable_encryption:
@@ -179,9 +212,23 @@ async def generic_post_endpoint(
 
     # --- 11. Secure logging (last, redact sensitive info) ---
     logger = get_secure_logger(__name__)
-    logger.info("Endpoint logic executed", user_id=verified['user'].id, resource_id=resource_id)
+    logger.info("Endpoint logic executed", user_id=verified['user'].id, resource_id=resource_id, request_id=request_id, response_id=response_id)
+
+    # Attach tracing IDs to response
+    business_result["request_id"] = request_id
+    business_result["response_id"] = response_id
 
     return business_result
 
 # Register the endpoint with the router
-router.post("/example-endpoint")(generic_post_endpoint)
+router.post(
+    "/example-endpoint",
+    response_model=ExampleSuccessResponse,
+    responses={
+        400: {"model": ExampleErrorResponse, "description": "Bad Request"},
+        401: {"model": ExampleErrorResponse, "description": "Unauthorized"},
+        403: {"model": ExampleErrorResponse, "description": "Forbidden"},
+        429: {"model": ExampleErrorResponse, "description": "Rate limit exceeded"},
+        500: {"model": ExampleErrorResponse, "description": "Internal Server Error"},
+    },
+)(generic_post_endpoint)
