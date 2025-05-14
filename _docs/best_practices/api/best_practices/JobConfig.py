@@ -7,7 +7,11 @@
 from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field
-from pydantic import BaseSettings
+from pydantic_settings import BaseSettings
+
+from typing import  Optional, list
+from app.models._data.user.security.permissions_models import PermissionEnum
+from app.models._data.user.security.role_types import RoleTypeEnum
 
 
 # ---
@@ -140,10 +144,14 @@ class CacheConfig(BaseModel):
 
 # config/security.py
 
-
-class SecurityConfig(BaseSettings):
-    permission_roles_required: list[str] = ["admin", "db_user"]
-    user_permissions_required: list[str] = ["read:example", "write:example", "delete:example"]
+class SecurityConfig(BaseModel):
+    """
+    Security configuration for an endpoint or service.
+    - permission_roles_required is a list of RoleType enums for type-safe role checks.
+    - user_permissions_required is a list of PermissionEnum for action-based permission checks.
+    """
+    permission_roles_required: Optional[list[RoleTypeEnum]] = Field(default_factory=list, description="types of roles available for this endpoint")
+    user_permissions_required: Optional[list[PermissionEnum]] = Field(default_factory=list, description="actions that are required for the app ")
     auth_type_required: str = "jwt"
     mfa_required: bool = True  # * Require multi-factor authentication
     user_profile_scope_required: str = "read:user"  # * Scope required for user profile endpoint

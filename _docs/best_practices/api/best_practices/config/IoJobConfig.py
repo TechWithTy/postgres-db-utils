@@ -10,6 +10,8 @@ Production-optimized config for I/O-bound endpoints and jobs, using endpoint_con
 from pydantic_settings import BaseSettings
 from pydantic import Field
 from app.core.db_utils._docs.best_practices.api.best_practices.JobConfig import JobConfig, EndpointConfig, SecurityConfig
+from app.models._data.user.security.role_types import RoleTypeEnum
+from app.models._data.user.security.permissions_models import PermissionEnum
 
 # --- IO-specific config types ---
 class IoJobCacheConfig:
@@ -58,6 +60,23 @@ class IoJobConfig(JobConfig):
     Main config for IO-bound endpoints/jobs.
     - Per-endpoint resource, cache, rate limit, circuit breaker, tracing, metrics, security, encryption, etc.
     - Global service-level config fields (optional, for legacy or fallback)
+
+    Example usage of RoleTypeEnum and PermissionEnum for endpoint security:
+
+        from app.models._data.user.security.role_types import RoleTypeEnum
+        from app.models._data.user.security.permissions_models import PermissionEnum
+        ...
+        endpoint_configs = {
+            "webhook": EndpointConfig(
+                auth=SecurityConfig(
+                    permission_roles_required=[RoleTypeEnum.service, RoleTypeEnum.admin],
+                    user_permissions_required=[PermissionEnum.create_leads, PermissionEnum.read_report],
+                    mfa_required=False
+                ),
+                ...
+            ),
+            ...
+        }
     """
     endpoint_name: str = "io_task"
     endpoint_description: str = "I/O-bound Task Endpoint"
@@ -73,13 +92,13 @@ class IoJobConfig(JobConfig):
     # --- Per-endpoint config: override global defaults as needed ---
     endpoint_configs: dict[str, EndpointConfig] = Field(default_factory=lambda: {
         "webhook": EndpointConfig(
-            auth=SecurityConfig(permission_roles_required=["webhook"], user_permissions_required=["webhook:send"], mfa_required=False),
+            auth=SecurityConfig(permission_roles_required=[RoleTypeEnum.service], user_permissions_required=[PermissionEnum.create_leads], mfa_required=False),
             cache=IoJobCacheConfig(cache_ttl=2, cache_size=2),
             rate_limit=IoJobRateLimitConfig(webhook_limit=10, window_seconds=60),
             circuit_breaker=IoJobCircuitBreakerConfig(circuit_breaker_threshold=1),
             tracing=IoJobTracingConfig(function_name="webhook"),
             metrics=IoJobMetricsConfig(io_histogram_name="webhook_latency"),
-            security=IoJobSecurityConfig(allowed_roles=["webhook"]),
+            security=IoJobSecurityConfig(allowed_roles=[RoleTypeEnum.service]),
             encryption=IoJobEncryptionConfig(enable_encryption=True),
             required_credits=0,
             endpoint_name="webhook",
