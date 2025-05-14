@@ -1,0 +1,9 @@
+flowchart TD
+    ClientRequest --> FastAPIRoute
+    FastAPIRoute --> EnforcePolicies
+    EnforcePolicies --> PolicyChecks
+    PolicyChecks -- Pass --> APIWorker
+    PolicyChecks -- Fail --> ErrorResponse
+    APIWorker --> WorkerLogic
+    WorkerLogic --> SuccessResponse
+    ErrorResponse --> SuccessResponse

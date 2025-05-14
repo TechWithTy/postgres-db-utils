@@ -1,6 +1,40 @@
 # Endpoint Integration Plans: FastAPI + db_utils
 
-This document provides step-by-step plans and code patterns for integrating each type of endpoint (DB, I/O, CPU-intensive) with FastAPI using project best practices. Each plan includes permission checks, dependency injection, and relevant utilities.
+This document outlines the unified, production-grade approach for integrating endpoints (DB, I/O, CPU) with FastAPI using config-driven workers and policy enforcement. All endpoints now use centralized JobConfig and enforce_all_policies for DRY, scalable, and testable best practices.
+
+---
+
+## 🟢 Unified Usage Pattern (All Endpoint Types)
+**Best Practice:**
+- Define a `JobConfig` with per-endpoint settings for security, rate limiting, caching, circuit breaker, tracing, metrics, and encryption.
+- Instantiate `config = JobConfig()` at the top of your worker file.
+- For each route, attach `enforce_all_policies("endpoint_name", config)` as a dependency.
+- Use the `api_worker(config)` decorator to wrap the handler for unified enforcement, logging, and observability.
+
+**Example:**
+```python
+from fastapi import APIRouter, Request, Depends
+from pydantic import BaseModel
+from app.core.db_utils._docs.best_practices.api.pipelines.JobConfig import JobConfig
+from app.core.db_utils._docs.best_practices.api.pipelines.utils.policies import enforce_all_policies
+from app.core.db_utils._docs.best_practices.api.pipelines.worker import api_worker
+
+config = JobConfig()
+router = APIRouter()
+my_endpoint_policy = enforce_all_policies("my_endpoint", config)
+
+class MyInput(BaseModel):
+    ...
+class MyOutput(BaseModel):
+    ...
+
+@router.post("/my-endpoint", response_model=MyOutput, dependencies=[my_endpoint_policy])
+@api_worker(config)
+async def my_endpoint(...):
+    ...
+```
+- All policy logic (rate limiting, cache, circuit breaker, security, etc.) is handled via config and enforced by `enforce_all_policies`.
+- No more direct decorator usage for these concerns—**just update your config!**
 
 ---
 
@@ -8,14 +42,79 @@ This document provides step-by-step plans and code patterns for integrating each
 **Goal:** Secure, observable, efficient, and cache-optimized DB access via FastAPI route.
 
 **Steps:**
-1. Define Pydantic input/output models for strict validation.
-2. Use async DB session dependency from connection pool.
-3. Add permission checks using `require_scope` and `roles_required`.
-4. Apply query optimization (caching, retries, circuit breaker) via `QueryOptimizer` or decorators.
-5. Use Valkey/Redis caching for expensive or frequently accessed queries (`get_or_set_cache`).
-6. Add Prometheus metrics and OpenTelemetry tracing.
-7. Return clear, actionable errors.
+1. Define strict Pydantic input/output models.
+2. Use async DB session dependency.
+3. Add permission checks via config (JobConfig.security, roles_required, require_scope).
+4. Attach `enforce_all_policies("db_worker_endpoint", config)` to the route.
+5. Use `api_worker(config)` for unified logging, tracing, and error handling.
+6. All caching, rate limiting, and circuit breaking are now handled by config, not direct decorators.
 
+**Example:**
+```python
+config = JobConfig()
+db_worker_policy = enforce_all_policies("db_worker_endpoint", config)
+
+@router.post("/db_worker_endpoint", response_model=UserInDB, dependencies=[db_worker_policy])
+@api_worker(config)
+async def db_worker_endpoint(...):
+    ...
+```
+
+---
+
+## 2. I/O (External API, File, Network) Endpoint Plan
+**Goal:** Robust, rate-limited, and observable integration with external systems.
+
+**Steps:**
+1. Define strict Pydantic models for input/output.
+2. Add permission checks via config.
+3. Attach `enforce_all_policies("io_endpoint", config)` as a dependency.
+4. Use `api_worker(config)` for retries, circuit breaker, tracing, and error handling.
+
+**Example:**
+```python
+config = JobConfig()
+io_policy = enforce_all_policies("io_endpoint", config)
+
+@router.get("/external-data", dependencies=[io_policy])
+@api_worker(config)
+async def fetch_external_data(...):
+    ...
+```
+
+---
+
+## 3. CPU-Intensive Endpoint Plan
+**Goal:** Offload heavy computation, enforce quotas, and ensure secure access.
+
+**Steps:**
+1. Define strict Pydantic input/output models.
+2. Require credits/quota via config.
+3. Add permission checks via config.
+4. Attach `enforce_all_policies("cpu_worker_endpoint", config)` as a dependency.
+5. Use `api_worker(config)` for unified best practices.
+
+**Example:**
+```python
+config = JobConfig()
+cpu_worker_policy = enforce_all_policies("cpu_worker_endpoint", config)
+
+@router.post("/cpu_worker_endpoint", dependencies=[cpu_worker_policy])
+@api_worker(config)
+async def submit_heavy_job(...):
+    ...
+```
+
+---
+
+**Key Points:**
+- All endpoint logic for security, rate limiting, caching, circuit breaker, tracing, metrics, and encryption is now config-driven.
+- No direct decorator usage for these concerns—**just update JobConfig and use enforce_all_policies!**
+- This pattern is DRY, scalable, and testable.
+- To add a new policy, update JobConfig and enforcement logic in policies.py.
+- All legacy/deprecated patterns (direct decorator usage for rate limiting, caching, etc.) have been removed.
+
+_Last updated: 2025-05-13_
 **Secure Input Handling:**
 ```python
 from pydantic import BaseModel
@@ -209,3 +308,16 @@ async def submit_heavy_job(
 ---
 
 *Use these plans as templates for production-grade FastAPI endpoints. Always integrate permission checks, dependency injection, and observability from the start. Last updated: 2025-05-13.*
+
+---
+
+## 🗺️ Unified Endpoint Flow (Mermaid)
+
+
+
+**Legend:**
+- All policy checks (security, rate limiting, idempotency, tracing, etc.) are enforced via `enforce_all_policies` and `JobConfig`.
+- Only if all policies pass does the request proceed to the worker logic.
+- All logging, tracing, and error handling are unified in the `api_worker` decorator.
+- Response is returned to the client.
+
