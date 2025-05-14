@@ -14,8 +14,8 @@ from pydantic import BaseModel
 import time
 
 from concurrent.futures import ProcessPoolExecutor
-from app.core.db_utils._docs.best_practices.api.best_practices.config.AuthServiceJobConfig import AuthServiceJobConfig
-from app.core.db_utils._docs.best_practices.api.best_practices.JobConfig import JobConfig
+from app.core.db_utils._docs.best_practices.api.pipelines.config.AuthServiceJobConfig import AuthServiceJobConfig
+from app.core.db_utils._docs.best_practices.api.pipelines.JobConfig import JobConfig
 from app.core.valkey_core.client import ValkeyClient, get_valkey_client
 from app.core.db_utils.security.security import get_verified_user
 from app.core.db_utils.security.oauth_scope import require_scope, roles_required
@@ -26,10 +26,10 @@ from app.core.telemetry.decorators import (
     trace_function,
     track_errors,
 )
-from app.core.db_utils._docs.best_practices.api.best_practices.utils.worker_utils import cpu_hash_task
+from app.core.db_utils._docs.best_practices.api.pipelines.utils.worker_utils import cpu_hash_task
 from app.core.db_utils.security.log_sanitization import log_endpoint_event
 from app.core.pulsar.decorators import pulsar_task
-from app.core.db_utils._docs.best_practices.api.best_practices.utils.policies import POLICY_ENFORCEMENT_MAP
+from app.core.db_utils._docs.best_practices.api.pipelines.utils.policies import POLICY_ENFORCEMENT_MAP
 
 # --- FastAPI App and Config ---
 app = FastAPI()

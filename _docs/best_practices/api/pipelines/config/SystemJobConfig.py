@@ -7,7 +7,7 @@ Production-optimized config for system-level routes, using endpoint_configs for 
 """
 
 from pydantic import Field
-from app.core.db_utils._docs.best_practices.api.best_practices.JobConfig import (
+from app.core.db_utils._docs.best_practices.api.pipelines.JobConfig import (
     JobConfig,
     EndpointConfig,
     SecurityConfig,

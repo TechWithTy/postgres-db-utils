@@ -5,8 +5,8 @@ Inspired by your deprecated I/O worker pattern, but designed for API endpoints.
 """
 from fastapi import Request, HTTPException
 from app.core.db_utils.security.log_sanitization import get_secure_logger
-from app.core.db_utils._docs.best_practices.api.best_practices.JobConfig import JobConfig
-from app.core.db_utils._docs.best_practices.api.best_practices.utils.worker_utils import (
+from app.core.db_utils._docs.best_practices.api.pipelines.JobConfig import JobConfig
+from app.core.db_utils._docs.best_practices.api.pipelines.utils.worker_utils import (
     get_tracing_ids,
     enforce_security,
     enforce_rate_limit,
@@ -18,8 +18,8 @@ from app.core.db_utils._docs.best_practices.api.best_practices.utils.worker_util
 import uuid, json
 from functools import wraps
 from fastapi import APIRouter, Depends, Request
-from app.core.db_utils._docs.best_practices.api.best_practices.JobConfig import JobConfig
-from app.core.db_utils._docs.best_practices.api.best_practices.worker import api_worker
+from app.core.db_utils._docs.best_practices.api.pipelines.JobConfig import JobConfig
+from app.core.db_utils._docs.best_practices.api.pipelines.worker import api_worker
 from app.core.valkey_core.client import ValkeyClient, get_valkey_client
 from app.core.db_utils.security.security import get_verified_user
 from app.core.db_utils.security.oauth_scope import require_scope, roles_required
@@ -116,7 +116,7 @@ def api_worker(config: JobConfig):
             cached_result = None
             if hasattr(config, 'cache') and getattr(config.cache, 'enabled', False):
                 try:
-                    from app.core.db_utils._docs.best_practices.api.best_practices.utils.worker_utils import enforce_cache
+                    from app.core.db_utils._docs.best_practices.api.pipelines.utils.worker_utils import enforce_cache
                     cached_result = await enforce_cache(
                         key=cache_key,
                         expensive_operation=lambda: None,  # Only check, don't compute
@@ -163,7 +163,7 @@ def api_worker(config: JobConfig):
             # --- Set cache after business logic (if enabled) ---
             if hasattr(config, 'cache') and getattr(config.cache, 'enabled', False):
                 try:
-                    from app.core.db_utils._docs.best_practices.api.best_practices.utils.worker_utils import enforce_cache
+                    from app.core.db_utils._docs.best_practices.api.pipelines.utils.worker_utils import enforce_cache
                     await enforce_cache(
                         key=cache_key,
                         expensive_operation=lambda: response_data,

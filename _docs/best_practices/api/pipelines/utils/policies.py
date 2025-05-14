@@ -4,7 +4,7 @@ from fastapi import status
 from fastapi import HTTPException
 from fastapi import Depends
 from fastapi import Request
-from app.core.db_utils._docs.best_practices.api.best_practices.JobConfig import (
+from app.core.db_utils._docs.best_practices.api.pipelines.JobConfig import (
     JobConfig
     
 )   
@@ -174,6 +174,44 @@ POLICY_ENFORCEMENT_MAP = {
     "security": enforce_security_policy,
     "encryption": enforce_encryption_policy,
 }
+
+
+
+# Example: global/mock backends (replace with real DI in prod)
+global_cache_backend = None  # e.g., ValkeyClient()
+global_rate_limit_backend = None
+global_circuit_breaker_backend = None
+global_tracing_backend = None
+global_metrics_backend = None
+global_security_backend = None
+global_encryption_backend = None
+
+def enforce_all_policies(endpoint_name: str, config: JobConfig):
+    """
+    Returns a FastAPI dependency that enforces all policies for the given endpoint_name using the provided config object.
+    Usage: enforce_all_policies(endpoint_name, config)
+    """
+    async def dependency(request: Request):
+        endpoint_cfg = config.endpoint_configs.get(endpoint_name, getattr(config, 'default_endpoint_config', None))
+        for policy_name, policy_func in POLICY_ENFORCEMENT_MAP.items():
+            policy_cfg = getattr(endpoint_cfg, policy_name, None)
+            if policy_cfg and getattr(policy_cfg, "enabled", False):
+                backend_arg = {
+                    "cache_backend": global_cache_backend,
+                    "rate_limit_backend": global_rate_limit_backend,
+                    "circuit_breaker_backend": global_circuit_breaker_backend,
+                    "tracing_backend": global_tracing_backend,
+                    "metrics_backend": global_metrics_backend,
+                    "security_backend": global_security_backend,
+                    "encryption_backend": global_encryption_backend,
+                }.get(f"{policy_name}_backend", None)
+                await policy_func(
+                    endpoint_name=endpoint_name,
+                    config=config,
+                    request=request,
+                    **({f"{policy_name}_backend": backend_arg} if backend_arg else {})
+                )
+    return Depends(dependency)
 
 # * Usage Example:
 # for policy, enforce_fn in POLICY_ENFORCEMENT_MAP.items():

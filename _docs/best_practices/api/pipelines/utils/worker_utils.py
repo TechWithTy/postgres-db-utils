@@ -4,7 +4,7 @@ Reusable async guards and helpers for endpoints: cache, rate limiting, security,
 """
 from fastapi import Depends, HTTPException, Request
 from app.core.db_utils.security.log_sanitization import get_secure_logger
-from app.core.db_utils._docs.best_practices.api.best_practices.JobConfig import JobConfig, RateLimitAlgo
+from app.core.db_utils._docs.best_practices.api.pipelines.JobConfig import JobConfig, RateLimitAlgo
 from app.core.valkey_core.client import ValkeyClient
 from app.core.valkey_core.algorithims.rate_limit.token_bucket import is_allowed_token_bucket
 from app.core.valkey_core.algorithims.rate_limit.fixed_window import is_allowed_fixed_window
@@ -16,7 +16,7 @@ from app.core.db_utils.security.ip_whitelist import verify_ip_whitelisted
 from app.core.db_utils.security.oauth_scope import require_scope, roles_required
 from app.core.db_utils.security.security import get_verified_user
 import uuid, json
-from app.core.db_utils._docs.best_practices.api.best_practices.JobConfig import (
+from app.core.db_utils._docs.best_practices.api.pipelines.JobConfig import (
     JobConfig
 )
 import hashlib

@@ -8,7 +8,7 @@ Production-optimized config for authentication-related routes, using endpoint_co
 
 from pydantic_settings import BaseSettings
 from pydantic import Field
-from app.core.db_utils._docs.best_practices.api.best_practices.JobConfig import JobConfig, EndpointConfig, SecurityConfig
+from app.core.db_utils._docs.best_practices.api.pipelines.JobConfig import JobConfig, EndpointConfig, SecurityConfig
 from app.models._data.user.security.role_types import RoleTypeEnum
 from app.models._data.user.security.permissions_models import PermissionEnum
 

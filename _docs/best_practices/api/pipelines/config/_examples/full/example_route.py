@@ -7,8 +7,8 @@ from pydantic import BaseModel
 from typing import Any
 import uuid
 import json
-from app.core.db_utils._docs.best_practices.api.best_practices.JobConfig import JobConfig
-from app.core.db_utils._docs.best_practices.api.best_practices.utils.worker_utils import (
+from app.core.db_utils._docs.best_practices.api.pipelines.JobConfig import JobConfig
+from app.core.db_utils._docs.best_practices.api.pipelines.utils.worker_utils import (
     enforce_security,
     enforce_rate_limit,
     enforce_idempotency,
@@ -31,7 +31,7 @@ from app.core.db_utils.security.oauth_scope import require_scope
 from app.core.db_utils.security.oauth_scope import roles_required
 from app.core.db_utils.security.ip_whitelist import verify_ip_whitelisted
 
-from app.core.db_utils._docs.best_practices.api.best_practices.JobConfig import JobConfig 
+from app.core.db_utils._docs.best_practices.api.pipelines.JobConfig import JobConfig 
 
 from app.core.db_utils.security.mfa import get_mfa_service, MFAService
 from app.core.telemetry.decorators import (
