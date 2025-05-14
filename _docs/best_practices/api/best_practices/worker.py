@@ -32,9 +32,10 @@ from app.core.telemetry.decorators import (
 )
 from app.core.db_utils.security.log_sanitization import log_endpoint_event
 from app.core.pulsar.decorators import pulsar_task
-
+from app.core.db_utils.db_selector import get_db_client
 from pydantic import BaseModel
 from typing import Any, Dict
+
 
 class ExamplePayload(BaseModel):
     resource_id: str
@@ -144,7 +145,7 @@ def api_worker(config: JobConfig):
                             func=lambda: result,
                             request=request,
                             credit_type=config.credit_type,
-                            db=db,
+                            db=get_db_client(),
                             current_user=verified['user'],
                             credit_amount=config.required_credits,
                         )
