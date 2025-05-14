@@ -63,9 +63,48 @@ This guide consolidates best practices from all security modules in `app.core.db
 
 ---
 
-## Implementation Snippets
+## General Security Best Practices
 
-- **Password Verification with Rate Limit:**
+- Use environment variables for all secrets, tokens, and config.
+- Validate and sanitize all incoming data.
+- Enforce authentication, authorization, and rate limiting on every endpoint.
+- Log all security events for audit and compliance.
+
+---
+
+## Example: FastAPI Entrypoint
+
+```python
+from fastapi import FastAPI, Depends
+from app.core.db_utils.security.authentication import authenticate_user
+from app.core.db_utils.security.rate_limit import enforce_rate_limit
+
+app = FastAPI()
+
+@app.get("/secure-data")
+async def secure_data(user=Depends(authenticate_user), rate_limited=Depends(enforce_rate_limit)):
+    ...
+```
+
+---
+
+## Utilization Example
+
+### Security Dependency Stack
+```python
+from fastapi import Depends
+from app.core.db_utils.security.authentication import authenticate_user
+from app.core.db_utils.security.rate_limit import enforce_rate_limit
+from app.core.db_utils.security.input_validation_middleware import InputValidationMiddleware
+
+app.add_middleware(InputValidationMiddleware)
+
+@app.post("/protected")
+async def protected(user=Depends(authenticate_user), rate_limited=Depends(enforce_rate_limit)):
+    ...
+```
+
+### Password Verification with Rate Limit:
 ```python
 from app.core.db_utils.security.security import verify_password
 try:
@@ -75,7 +114,7 @@ except HTTPException as e:
     ...
 ```
 
-- **Brute-Force Lockout Check:**
+### Brute-Force Lockout Check:
 ```python
 from app.core.db_utils.security.brute_force_and_token_revocation import check_brute_force
 await check_brute_force(email, ip)

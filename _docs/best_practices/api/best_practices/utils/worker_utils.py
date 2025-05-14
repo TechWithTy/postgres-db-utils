@@ -19,6 +19,18 @@ import uuid, json
 from app.core.db_utils._docs.best_practices.api.best_practices.JobConfig import (
     JobConfig
 )
+import hashlib
+from typing import Awaitable, Callable, TypeVar
+from fastapi import Depends, Request, HTTPException
+from fastapi.responses import JSONResponse
+from typing import Callable, Awaitable, Any
+from app.core.db_utils.credits.credits import deduct_credits_atomic, CreditType
+from app.core.db_utils.deps import get_db, get_current_user
+from sqlalchemy.orm import Session
+from app.core.db_utils.models import User
+from typing import Awaitable, Callable, TypeVar
+from app.core.db_utils.credits.credits import call_function_with_credits
+from app.core.db_utils.security.encryption import encrypt_incoming, decrypt_outgoing
 from app.core.db_utils.deps_supabase import get_current_supabase_user
 from fastapi import status
 from fastapi import HTTPException
@@ -52,9 +64,7 @@ async def enforce_cache(
     # todo: After endpoint logic, set cache_backend.set(key, result, ex=cache_ttl)
 
 # --- DRY async cache utility ---
-from typing import Awaitable, Callable, TypeVar
-from app.core.db_utils.credits.credits import call_function_with_credits
-from app.core.db_utils.security.encryption import encrypt_incoming, decrypt_outgoing
+
 T = TypeVar("T")
 
 async def enforce_cache(
@@ -81,7 +91,6 @@ async def enforce_cache(
         return None
 
 # --- DRY async cache utility ---
-from typing import Awaitable, Callable, TypeVar
 T = TypeVar("T")
 
 async def enforce_cache(
@@ -108,25 +117,28 @@ async def enforce_cache(
         return None
 
 # --- Credits enforcement utility ---
+
 async def enforce_credits(
-    user_id: str,
-    required_credits: int,
-    endpoint: str,
-) -> None:
+    func: Callable[[Request, User], Awaitable[Any]],
+    request: Request,
+    credit_type: CreditType,  # 'ai', 'leads', or 'skiptrace'
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    credit_amount: int = 1,
+) -> JSONResponse:
     """
-    * DRY async utility for enforcing and deducting credits for a user.
-    * Raises HTTPException if deduction fails.
+    FastAPI utility to wrap endpoint logic with credit-based access control.
+    Thin wrapper for call_function_with_credits; see that function for full logic.
     """
-    try:
-        call_function_with_credits(
-            user_id=user_id,
-            required_credits=required_credits,
-            endpoint=endpoint,
-        )
-    except Exception as exc:
-        logger = get_secure_logger(__name__)
-        logger.error("Credits deduction failed", error=str(exc), user_id=user_id, endpoint=endpoint)
-        raise HTTPException(status_code=500, detail="Internal credits error")
+    return await call_function_with_credits(
+        func=func,
+        request=request,
+        credit_type=credit_type,
+        db=db,
+        current_user=current_user,
+        credit_amount=credit_amount,
+    )
+
 
 # --- Encryption utility ---
 def apply_encryption(data: dict) -> dict:
@@ -263,7 +275,16 @@ async def enforce_idempotency(
             logger.error("Valkey idempotency check failed", error=str(exc), request_id=tracing_ids["request_id"], response_id=tracing_ids["response_id"])
             raise HTTPException(status_code=500, detail="Internal cache error")
     return None
-
+# --- CPU-Intensive Utility ---
+def cpu_hash_task(data: str, rounds: int) -> str:
+    """
+    Simulate CPU-bound work (e.g., repeated SHA-256 hashing).
+    ! Do not run this directly in async context; always use a process pool.
+    """
+    hashed = data.encode()
+    for _ in range(rounds):
+        hashed = hashlib.sha256(hashed).digest()
+    return hashed.hex()
 
 # --- Usage Example ---
 # In your route:

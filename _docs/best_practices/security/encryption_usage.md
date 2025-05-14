@@ -52,12 +52,57 @@ plaintext = encryptor.decrypt(ciphertext, key_version=None)  # Use None for curr
 
 ---
 
+## Utilization Example
+
+### Encrypt Incoming Data
+```python
+from app.core.db_utils.security.encryption import encrypt_incoming
+
+@encrypt_incoming
+async def store_sensitive_data(ssn: str, credit_card: str, note: str):
+    # Fields in settings.SENSITIVE_FIELDS are transparently encrypted
+    ...
+```
+
+### Decrypt Outgoing Data
+```python
+from app.core.db_utils.security.encryption import decrypt_outgoing
+
+@decrypt_outgoing
+async def get_sensitive_data(...):
+    # Fields in settings.SENSITIVE_FIELDS are transparently decrypted
+    ...
+```
+
+---
+
 ## Decorators for Automatic Encryption/Decryption
 
 These decorators can be used for any API, DB, or background function—not just DB queries!
 
+---
+
+## Utilization Example
+
+### Encrypt Incoming Data
 ```python
-from app.core.db_utils.security.encryption import encrypt_incoming, decrypt_outgoing
+from app.core.db_utils.security.encryption import encrypt_incoming
+
+@encrypt_incoming
+async def store_sensitive_data(ssn: str, credit_card: str, note: str):
+    # Fields in settings.SENSITIVE_FIELDS are transparently encrypted
+    ...
+```
+
+### Decrypt Outgoing Data
+```python
+from app.core.db_utils.security.encryption import decrypt_outgoing
+
+@decrypt_outgoing
+async def get_sensitive_data(...):
+    # Fields in settings.SENSITIVE_FIELDS are transparently decrypted
+    ...
+```
 
 # Encrypt only incoming sensitive fields (e.g., before DB write, API ingest)
 @encrypt_incoming

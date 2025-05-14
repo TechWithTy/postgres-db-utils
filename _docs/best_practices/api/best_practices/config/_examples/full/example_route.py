@@ -136,9 +136,12 @@ async def generic_post_endpoint(
     # --- 6. Credits enforcement (only on success) ---
     if business_result.get("success"):
         await enforce_credits(
-            user_id=user_id,
-            required_credits=JobConfig.required_credits,
-            endpoint=JobConfig.endpoint_name,
+            func=None,  # Not used in this context
+            request=request,
+            credit_type=JobConfig.credits.credit_type,
+            db=db,
+            current_user=user,
+            credit_amount=JobConfig.credits.required_credits,
         )
 
     # --- 7. Decrypt incoming data before business logic (if enabled) ---

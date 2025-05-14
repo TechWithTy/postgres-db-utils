@@ -13,8 +13,8 @@ from app.core.db_utils._docs.best_practices.api.best_practices.utils.worker_util
     enforce_idempotency,
     apply_encryption,
     apply_decryption,
+    enforce_credits,
 )
-from app.core.db_utils.credits.credits import call_function_with_credits
 import uuid, json
 from functools import wraps
 from fastapi import APIRouter, Depends, Request
@@ -140,10 +140,13 @@ def api_worker(config: JobConfig):
             try:
                 if result and getattr(result, 'success', False):
                     if verified:
-                        call_function_with_credits(
-                            user_id=verified['user'].id,
-                            required_credits=config.required_credits,
-                            endpoint=config.endpoint_name,
+                        enforce_credits(
+                            func=lambda: result,
+                            request=request,
+                            credit_type=config.credit_type,
+                            db=db,
+                            current_user=verified['user'],
+                            credit_amount=config.required_credits,
                         )
             except Exception as exc:
                 logger.error("Credits deduction failed", error=str(exc), request_id=request_id, response_id=response_id)

@@ -63,6 +63,25 @@ app.add_middleware(CSRFMiddleware, **get_csrf_middleware_config())
 
 ---
 
+## Utilization Example
+
+### CORS Middleware
+```python
+from starlette.middleware.cors import CORSMiddleware
+from core.db_utils.security.oauth_scope import get_cors_middleware_config
+app.add_middleware(CORSMiddleware, **get_cors_middleware_config())
+```
+
+### CSRF Middleware
+```python
+from starlette_csrf import CSRFMiddleware
+from core.db_utils.security.oauth_scope import get_csrf_middleware_config
+app.add_middleware(CSRFMiddleware, **get_csrf_middleware_config())
+```
+```
+
+---
+
 ## 4. Example: Starlette Entrypoint
 
 ```python
