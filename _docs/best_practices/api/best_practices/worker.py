@@ -6,15 +6,46 @@ Inspired by your deprecated I/O worker pattern, but designed for API endpoints.
 from fastapi import Request, HTTPException
 from app.core.db_utils.security.log_sanitization import get_secure_logger
 from app.core.db_utils._docs.best_practices.api.best_practices.JobConfig import JobConfig
-from app.core.db_utils._docs.best_practices.api.best_practices.worker_utils import (
+from app.core.db_utils._docs.best_practices.api.best_practices.utils.worker_utils import (
     get_tracing_ids,
     enforce_security,
     enforce_rate_limit,
     enforce_idempotency,
+    apply_encryption,
+    apply_decryption,
 )
 from app.core.db_utils.credits.credits import call_function_with_credits
 import uuid, json
 from functools import wraps
+from fastapi import APIRouter, Depends, Request
+from app.core.db_utils._docs.best_practices.api.best_practices.JobConfig import JobConfig
+from app.core.db_utils._docs.best_practices.api.best_practices.worker import api_worker
+from app.core.valkey_core.client import ValkeyClient, get_valkey_client
+from app.core.db_utils.security.security import get_verified_user
+from app.core.db_utils.security.oauth_scope import require_scope, roles_required
+from app.core.db_utils.security.ip_whitelist import verify_ip_whitelisted
+from app.core.db_utils.security.mfa import get_mfa_service, MFAService
+from app.core.telemetry.decorators import (
+    measure_performance,
+    trace_function,
+    track_errors,
+)
+from app.core.db_utils.security.log_sanitization import log_endpoint_event
+from app.core.pulsar.decorators import pulsar_task
+
+from pydantic import BaseModel
+from typing import Any, Dict
+
+class ExamplePayload(BaseModel):
+    resource_id: str
+
+class ExampleSuccessResponse(BaseModel):
+    success: bool
+    message: str
+    data: Dict[str, Any]
+
+class ExampleErrorResponse(BaseModel):
+    detail: str
 
 # --- Main Worker Decorator ---
 def api_worker(config: JobConfig):
@@ -69,11 +100,45 @@ def api_worker(config: JobConfig):
             if idempotency_result:
                 return idempotency_result
 
-            # --- Credits enforcement (on success only, after business logic) ---
-            # This must be called after the endpoint logic, so we wrap the call below
+            # --- Decrypt incoming data (if enabled) ---
+            decrypted_payload = payload.dict() if hasattr(payload, 'dict') else payload
+            if hasattr(JobConfig, 'encryption') and getattr(JobConfig.encryption, 'enable_decryption', False):
+                try:
+                    decrypted_payload = apply_decryption(decrypted_payload)
+                except Exception as e:
+                    logger.error("Decryption failed", error=str(e), request_id=request_id, response_id=response_id)
+                    raise HTTPException(status_code=400, detail=f"Decryption failed: {str(e)}")
+
+            # --- Caching (check before business logic) ---
+            cache_key = f"{config.endpoint_name}:{verified['user'].id if verified and 'user' in verified else None}:{decrypted_payload.get('resource_id', '')}"
+            cache_ttl = getattr(getattr(config, 'cache', object()), 'default_ttl', 60)
+            cached_result = None
+            if hasattr(config, 'cache') and getattr(config.cache, 'enabled', False):
+                try:
+                    from app.core.db_utils._docs.best_practices.api.best_practices.utils.worker_utils import enforce_cache
+                    cached_result = await enforce_cache(
+                        key=cache_key,
+                        expensive_operation=lambda: None,  # Only check, don't compute
+                        ttl=cache_ttl,
+                        cache_backend=valkey_client,
+                    )
+                except Exception as e:
+                    logger.error("Cache check failed", error=str(e), request_id=request_id, response_id=response_id)
+            if cached_result:
+                return cached_result
+
+            # --- Business logic (call endpoint) ---
             try:
+                # Pass decrypted payload as 'payload' kwarg
+                kwargs["payload"] = decrypted_payload
                 result = await func(*args, **kwargs)
-                if result and result.get("success"):
+            except Exception as exc:
+                logger.error("Endpoint logic failed", error=str(exc), request_id=request_id, response_id=response_id)
+                raise
+
+            # --- Credits enforcement (on success only) ---
+            try:
+                if result and getattr(result, 'success', False):
                     if verified:
                         call_function_with_credits(
                             user_id=verified['user'].id,
@@ -82,35 +147,36 @@ def api_worker(config: JobConfig):
                         )
             except Exception as exc:
                 logger.error("Credits deduction failed", error=str(exc), request_id=request_id, response_id=response_id)
-                raise HTTPException(status_code=500, detail="Internal credits error")
 
-            # --- Logging and tracing IDs in response ---
-            logger.info("Endpoint logic executed", request_id=request_id, response_id=response_id)
-            if isinstance(result, dict):
-                result["request_id"] = request_id
-                result["response_id"] = response_id
+            # --- Encrypt outgoing data (if enabled) ---
+            response_data = result.data if hasattr(result, 'data') else result
+            if hasattr(JobConfig, 'encryption') and getattr(JobConfig.encryption, 'enable_encryption', False):
+                try:
+                    response_data = apply_encryption(response_data)
+                except Exception as e:
+                    logger.error("Encryption failed", error=str(e), request_id=request_id, response_id=response_id)
+                    raise HTTPException(status_code=500, detail=f"Encryption failed: {str(e)}")
+            # --- Set cache after business logic (if enabled) ---
+            if hasattr(config, 'cache') and getattr(config.cache, 'enabled', False):
+                try:
+                    from app.core.db_utils._docs.best_practices.api.best_practices.utils.worker_utils import enforce_cache
+                    await enforce_cache(
+                        key=cache_key,
+                        expensive_operation=lambda: response_data,
+                        ttl=cache_ttl,
+                        cache_backend=valkey_client,
+                    )
+                except Exception as e:
+                    logger.error("Cache set failed", error=str(e), request_id=request_id, response_id=response_id)
+            # --- Return response ---
+            # Always return the correct response type, with encrypted data if required.
+            if hasattr(result, 'dict'):
+                return result.__class__(**{**result.dict(), "data": response_data})
             return result
         return wrapper
     return decorator
 
-from fastapi import APIRouter, Depends, Request
-from app.core.db_utils._docs.best_practices.api.best_practices.JobConfig import JobConfig
-from app.core.db_utils._docs.best_practices.api.best_practices.worker import api_worker
-from app.core.db_utils._docs.best_practices.api.best_practices.example_route import (
-    ExamplePayload, ExampleSuccessResponse, ExampleErrorResponse
-)
-from app.core.valkey_core.client import ValkeyClient, get_valkey_client
-from app.core.db_utils.security.security import get_verified_user
-from app.core.db_utils.security.oauth_scope import require_scope, roles_required
-from app.core.db_utils.security.ip_whitelist import verify_ip_whitelisted
-from app.core.db_utils.security.mfa import get_mfa_service, MFAService
-from app.core.telemetry.decorators import (
-    measure_performance,
-    trace_function,
-    track_errors,
-)
-from app.core.db_utils.security.log_sanitization import log_endpoint_event
-from app.core.pulsar.decorators import pulsar_task
+
 
 router = APIRouter()
 

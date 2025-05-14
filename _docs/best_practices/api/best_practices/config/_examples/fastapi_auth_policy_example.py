@@ -22,82 +22,215 @@ How to use:
 from fastapi import FastAPI, Depends, HTTPException, status, Request
 from typing import Callable
 from app.core.db_utils._docs.best_practices.api.best_practices.config.AuthServiceJobConfig import (
-    AuthServiceJobConfig, EndpointAuthConfig, AuthPolicy
+    AuthServiceJobConfig
 )
-
-# Simulate current user (in real app, extract from JWT/session)
-def get_current_user(request: Request):
-    # todo: Replace with real JWT/session extraction
-    return {
-        "username": "alice",
-        "roles": ["user"],
-        "scopes": ["read:user"],
-        "mfa_passed": True,
-        "is_authenticated": True,
-    }
-
-# --- Auth Enforcement Dependency ---
-def enforce_auth_policy(
-    endpoint_name: str,
-    config: AuthServiceJobConfig = Depends(),
-    user: dict = Depends(get_current_user),
-) -> None:
-    """
-    Enforce the per-endpoint auth policy using the new SecurityConfig-driven AuthServiceJobConfig.
-    """
-    # Get the endpoint's SecurityConfig (raises KeyError if endpoint not configured)
-    auth_config = config.endpoint_configs[endpoint_name].auth
-
-    # 1. Public endpoint (no auth required)
-    if not auth_config.permission_roles_required and not auth_config.user_permissions_required and not auth_config.mfa_required:
-        return
-
-    # 2. Must be authenticated
-    if not user.get("is_authenticated"):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
-
-    # 3. Role check
-    if auth_config.permission_roles_required:
-        if not any(role in user.get("roles", []) for role in auth_config.permission_roles_required):
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient role")
-
-    # 4. Scope/permission check
-    if auth_config.user_permissions_required:
-        if not all(scope in user.get("scopes", []) for scope in auth_config.user_permissions_required):
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Missing required permission/scope")
-
-    # 5. MFA check
-    if auth_config.mfa_required and not user.get("mfa_passed"):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="MFA required")
+from fastapi import Request, Depends
+from app.core.db_utils._docs.best_practices.api.best_practices.JobConfig import JobConfig
+from app.core.valkey_core.client import ValkeyClient, get_valkey_client
+from app.core.db_utils.security.security import get_verified_user
+from app.core.db_utils.security.oauth_scope import require_scope, roles_required
+from app.core.db_utils.security.ip_whitelist import verify_ip_whitelisted
+from app.core.db_utils.security.mfa import get_mfa_service, MFAService
+from app.core.telemetry.decorators import (
+    measure_performance,
+    trace_function,
+    track_errors,
+)
+from app.core.db_utils.security.log_sanitization import log_endpoint_event
+from app.core.pulsar.decorators import pulsar_task
+from app.core.db_utils._docs.best_practices.api.best_practices.utils.policies import POLICY_ENFORCEMENT_MAP
+from pydantic import BaseModel
+from typing import Any, Dict
 
 # --- FastAPI App and Routes ---
 app = FastAPI()
 config = AuthServiceJobConfig()  # In real app, inject/configure as needed
 
-def make_secured_route(endpoint_name: str) -> Callable:
-    def dependency():
-        return enforce_auth_policy(endpoint_name, config)
+class ExamplePayload(BaseModel):
+    resource_id: str
+
+class ExampleSuccessResponse(BaseModel):
+    success: bool
+    message: str
+    data: Dict[str, Any]
+  
+
+# Example: global/mock backends (replace with real DI in prod)
+global_cache_backend = None  # e.g., ValkeyClient()
+global_rate_limit_backend = None
+global_circuit_breaker_backend = None
+global_tracing_backend = None
+global_metrics_backend = None
+global_security_backend = None
+global_encryption_backend = None
+
+def enforce_all_policies(endpoint_name: str):
+    async def dependency(request: Request):
+        endpoint_cfg = config.endpoint_configs.get(endpoint_name, config.default_endpoint_config)
+        for policy_name, policy_func in POLICY_ENFORCEMENT_MAP.items():
+            policy_cfg = getattr(endpoint_cfg, policy_name, None)
+            if policy_cfg and getattr(policy_cfg, "enabled", False):
+                backend_arg = {
+                    "cache_backend": global_cache_backend,
+                    "rate_limit_backend": global_rate_limit_backend,
+                    "circuit_breaker_backend": global_circuit_breaker_backend,
+                    "tracing_backend": global_tracing_backend,
+                    "metrics_backend": global_metrics_backend,
+                    "security_backend": global_security_backend,
+                    "encryption_backend": global_encryption_backend,
+                }.get(f"{policy_name}_backend", None)
+                await policy_func(
+                    endpoint_name=endpoint_name,
+                    config=config,
+                    request=request,
+                    **({f"{policy_name}_backend": backend_arg} if backend_arg else {})
+                )
     return Depends(dependency)
 
-@app.get("/sign_up")
-def sign_up():
-    return {"msg": "Sign up is public"}
+@app.post("/sign_up")
+@measure_performance(threshold_ms=100.0, level="warn", record_metric=True)
+@trace_function(name=JobConfig.tracing.function_name, attributes={"route": JobConfig.endpoint_name}, record_metrics=True, capture_exceptions=True)
+@track_errors
+@log_endpoint_event(JobConfig.tracing.function_name)
+@pulsar_task(
+    topic=JobConfig.pulsar_labeling.job_topic,
+    producer_label=JobConfig.pulsar_labeling.producer_label,
+    event_label=JobConfig.pulsar_labeling.event_label,
+    max_retries=JobConfig.pulsar_labeling.max_retries,
+    retry_delay=JobConfig.pulsar_labeling.retry_delay,
+)
+async def sign_up(
+    payload: ExamplePayload,
+    request: Request,
+    valkey_client: ValkeyClient = Depends(get_valkey_client),
+    verified=Depends(get_verified_user) if JobConfig.security.auth_type_required else None,
+    user=Depends(require_scope(JobConfig.security.user_permissions_required)) if JobConfig.security.user_permissions_required else None,
+    db=Depends(lambda: None) if JobConfig.security.db_enabled else None,
+    roles=Depends(roles_required(JobConfig.security.permission_roles_required)) if JobConfig.security.permission_roles_required else None,
+    ip_ok=Depends(verify_ip_whitelisted) if getattr(JobConfig.security, 'ip_whitelist_enabled', False) else None,
+    mfa_service: MFAService = Depends(get_mfa_service) if getattr(JobConfig.security, 'mfa_required', False) else None,
+) -> ExampleSuccessResponse:
+    return {
+        "success": True,
+        "message": "Sign up is public",
+        "data": {"resource_id": payload.resource_id}
+    }
 
-@app.get("/get_user_info")
-def get_user_info(dep=make_secured_route("get_user_info")):
-    return {"msg": "User info"}
+@app.post("/get_user_info")
+@measure_performance(threshold_ms=100.0, level="warn", record_metric=True)
+@trace_function(name=JobConfig.tracing.function_name, attributes={"route": JobConfig.endpoint_name}, record_metrics=True, capture_exceptions=True)
+@track_errors
+@log_endpoint_event(JobConfig.tracing.function_name)
+@pulsar_task(
+    topic=JobConfig.pulsar_labeling.job_topic,
+    producer_label=JobConfig.pulsar_labeling.producer_label,
+    event_label=JobConfig.pulsar_labeling.event_label,
+    max_retries=JobConfig.pulsar_labeling.max_retries,
+    retry_delay=JobConfig.pulsar_labeling.retry_delay,
+)
+async def get_user_info(
+    payload: ExamplePayload,
+    request: Request,
+    valkey_client: ValkeyClient = Depends(get_valkey_client),
+    verified=Depends(get_verified_user) if JobConfig.security.auth_type_required else None,
+    user=Depends(require_scope(JobConfig.security.user_permissions_required)) if JobConfig.security.user_permissions_required else None,
+    db=Depends(lambda: None) if JobConfig.security.db_enabled else None,
+    roles=Depends(roles_required(JobConfig.security.permission_roles_required)) if JobConfig.security.permission_roles_required else None,
+    ip_ok=Depends(verify_ip_whitelisted) if getattr(JobConfig.security, 'ip_whitelist_enabled', False) else None,
+    mfa_service: MFAService = Depends(get_mfa_service) if getattr(JobConfig.security, 'mfa_required', False) else None,
+) -> ExampleSuccessResponse:
+    return {
+        "success": True,
+        "message": "User info",
+        "data": {"resource_id": payload.resource_id}
+    }
 
-@app.get("/admin_only")
-def admin_only(dep=make_secured_route("admin_only")):
-    return {"msg": "Admin only"}
+@app.post("/admin_only")
+@measure_performance(threshold_ms=100.0, level="warn", record_metric=True)
+@trace_function(name=JobConfig.tracing.function_name, attributes={"route": JobConfig.endpoint_name}, record_metrics=True, capture_exceptions=True)
+@track_errors
+@log_endpoint_event(JobConfig.tracing.function_name)
+@pulsar_task(
+    topic=JobConfig.pulsar_labeling.job_topic,
+    producer_label=JobConfig.pulsar_labeling.producer_label,
+    event_label=JobConfig.pulsar_labeling.event_label,
+    max_retries=JobConfig.pulsar_labeling.max_retries,
+    retry_delay=JobConfig.pulsar_labeling.retry_delay,
+)
+async def admin_only(
+    payload: ExamplePayload,
+    request: Request,
+    valkey_client: ValkeyClient = Depends(get_valkey_client),
+    verified=Depends(get_verified_user) if JobConfig.security.auth_type_required else None,
+    user=Depends(require_scope(JobConfig.security.user_permissions_required)) if JobConfig.security.user_permissions_required else None,
+    db=Depends(lambda: None) if JobConfig.security.db_enabled else None,
+    roles=Depends(roles_required(JobConfig.security.permission_roles_required)) if JobConfig.security.permission_roles_required else None,
+    ip_ok=Depends(verify_ip_whitelisted) if getattr(JobConfig.security, 'ip_whitelist_enabled', False) else None,
+    mfa_service: MFAService = Depends(get_mfa_service) if getattr(JobConfig.security, 'mfa_required', False) else None,
+) -> ExampleSuccessResponse:
+    return {
+        "success": True,
+        "message": "Admin only",
+        "data": {"resource_id": payload.resource_id}
+    }
 
-@app.get("/health")
-def health():
-    return {"msg": "OK"}
+@app.post("/health")
+@measure_performance(threshold_ms=100.0, level="warn", record_metric=True)
+@trace_function(name=JobConfig.tracing.function_name, attributes={"route": JobConfig.endpoint_name}, record_metrics=True, capture_exceptions=True)
+@track_errors
+@log_endpoint_event(JobConfig.tracing.function_name)
+@pulsar_task(
+    topic=JobConfig.pulsar_labeling.job_topic,
+    producer_label=JobConfig.pulsar_labeling.producer_label,
+    event_label=JobConfig.pulsar_labeling.event_label,
+    max_retries=JobConfig.pulsar_labeling.max_retries,
+    retry_delay=JobConfig.pulsar_labeling.retry_delay,
+)
+async def health(
+    payload: ExamplePayload,
+    request: Request,
+    valkey_client: ValkeyClient = Depends(get_valkey_client),
+    verified=Depends(get_verified_user) if JobConfig.security.auth_type_required else None,
+    user=Depends(require_scope(JobConfig.security.user_permissions_required)) if JobConfig.security.user_permissions_required else None,
+    db=Depends(lambda: None) if JobConfig.security.db_enabled else None,
+    roles=Depends(roles_required(JobConfig.security.permission_roles_required)) if JobConfig.security.permission_roles_required else None,
+    ip_ok=Depends(verify_ip_whitelisted) if getattr(JobConfig.security, 'ip_whitelist_enabled', False) else None,
+    mfa_service: MFAService = Depends(get_mfa_service) if getattr(JobConfig.security, 'mfa_required', False) else None,
+) -> ExampleSuccessResponse:
+    return {
+        "success": True,
+        "message": "OK",
+        "data": {"resource_id": payload.resource_id}
+    }
 
-@app.get("/unlisted")
-def unlisted(dep=make_secured_route("unlisted")):
-    return {"msg": "This uses the default (secure) policy"}
+@app.post("/unlisted")
+@measure_performance(threshold_ms=100.0, level="warn", record_metric=True)
+@trace_function(name=JobConfig.tracing.function_name, attributes={"route": JobConfig.endpoint_name}, record_metrics=True, capture_exceptions=True)
+@track_errors
+@log_endpoint_event(JobConfig.tracing.function_name)
+@pulsar_task(
+    topic=JobConfig.pulsar_labeling.job_topic,
+    producer_label=JobConfig.pulsar_labeling.producer_label,
+    event_label=JobConfig.pulsar_labeling.event_label,
+    max_retries=JobConfig.pulsar_labeling.max_retries,
+    retry_delay=JobConfig.pulsar_labeling.retry_delay,
+)
+async def unlisted(
+    payload: ExamplePayload,
+    request: Request,
+    valkey_client: ValkeyClient = Depends(get_valkey_client),
+    verified=Depends(get_verified_user) if JobConfig.security.auth_type_required else None,
+    user=Depends(require_scope(JobConfig.security.user_permissions_required)) if JobConfig.security.user_permissions_required else None,
+    db=Depends(lambda: None) if JobConfig.security.db_enabled else None,
+    roles=Depends(roles_required(JobConfig.security.permission_roles_required)) if JobConfig.security.permission_roles_required else None,
+    ip_ok=Depends(verify_ip_whitelisted) if getattr(JobConfig.security, 'ip_whitelist_enabled', False) else None,
+    mfa_service: MFAService = Depends(get_mfa_service) if getattr(JobConfig.security, 'mfa_required', False) else None,
+) -> ExampleSuccessResponse:
+    return {
+        "success": True,
+        "message": "This uses the default (secure) policy",
+        "data": {"resource_id": payload.resource_id}
+    }
 
 @app.get("/has_admin_only_config")
 def has_admin_only_config():
@@ -111,5 +244,3 @@ def has_admin_only_config():
     if admin_only:
         return {"admin_only_present": True, "admin_only_config": admin_only.model_dump()}
     return {"admin_only_present": False}
-
-# todo: Add more routes and real JWT extraction for production
