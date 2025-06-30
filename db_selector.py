@@ -12,7 +12,7 @@ def get_db_client():
     
     # Check for Supabase configuration
     if supabase_url.strip() and supabase_key.strip():
-        from app.core.third_party_integrationsclient import supabase
+        from app.core.third_party_integrations.supabase_home.client import supabase
         return supabase
     # Check for PostgreSQL configuration
     elif postgres_server.strip() and postgres_user.strip():
