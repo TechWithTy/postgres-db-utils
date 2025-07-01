@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional, List, Union
 from fastapi import BackgroundTasks
 
 from prometheus_client import Counter, Histogram
+from opentelemetry import trace
 
 from app.core.pulsar.client import PulsarClient
 from app.core.valkey_core.client import ValkeyClient
@@ -119,7 +120,7 @@ async def hybrid_publish(
 
 async def publish_event(topic: str, data: Dict[str, Any], schema: Optional[str] = None) -> bool:
     """
-    Publish an event to a Pulsar topic synchronously.
+    Publish an event to a Pulsar topic with OTel tracing and fast timeout.
     This function will block until the message is acknowledged by Pulsar.
     
     Args:
@@ -133,38 +134,66 @@ async def publish_event(topic: str, data: Dict[str, Any], schema: Optional[str] 
     start_time = time.time()
     client = get_pulsar_client()
     
-    try:
-        # Add metadata to the event
-        enriched_data = {
-            **data,
-            "event_id": str(uuid.uuid4()),
-            "timestamp": time.time(),
-        }
-        
-        if schema:
-            enriched_data["schema"] = schema
+    # Add OTel tracing for Pulsar operations
+    with trace.get_tracer(__name__).start_as_current_span("pulsar_publish_event") as span:
+        try:
+            span.set_attribute("pulsar.topic", topic)
+            span.set_attribute("pulsar.schema", schema or "none")
+            span.set_attribute("pulsar.message_size", len(json.dumps(data)))
             
-        # Convert to JSON if it's not already a string
-        message = enriched_data if isinstance(enriched_data, str) else json.dumps(enriched_data)
-        
-        # Send the message
-        await client.send_message(topic, message)
-        
-        # Record metrics
-        duration = time.time() - start_time
-        get_event_count().labels(topic=topic, result="success").inc()
-        get_event_latency().labels(topic=topic).observe(duration)
-        
-        logger.debug(f"Published event to {topic}")
-        return True
-    except Exception as e:
-        # Record error metrics
-        duration = time.time() - start_time
-        get_event_count().labels(topic=topic, result="error").inc()
-        get_event_latency().labels(topic=topic).observe(duration)
-        
-        logger.error(f"Error publishing event to {topic}: {e}")
-        return False
+            # Add metadata to the event
+            enriched_data = {
+                **data,
+                "event_id": str(uuid.uuid4()),
+                "timestamp": time.time(),
+            }
+            
+            if schema:
+                enriched_data["schema"] = schema
+                
+            # Convert to JSON if it's not already a string
+            message = enriched_data if isinstance(enriched_data, str) else json.dumps(enriched_data)
+            
+            # Send the message with reduced timeout for fast failure
+            await asyncio.wait_for(
+                client.send_message(topic, message),
+                timeout=0.5  # 500ms timeout to fail fast and avoid blocking
+            )
+            
+            # Record metrics
+            duration = time.time() - start_time
+            get_event_count().labels(topic=topic, result="success").inc()
+            get_event_latency().labels(topic=topic).observe(duration)
+            
+            span.set_attribute("pulsar.success", True)
+            span.set_attribute("pulsar.duration", duration)
+            logger.debug(f"Published event to {topic} in {duration:.3f}s")
+            return True
+            
+        except asyncio.TimeoutError:
+            duration = time.time() - start_time
+            get_event_count().labels(topic=topic, result="timeout").inc()
+            get_event_latency().labels(topic=topic).observe(duration)
+            
+            span.set_attribute("pulsar.success", False)
+            span.set_attribute("pulsar.error", "timeout")
+            span.set_attribute("pulsar.duration", duration)
+            span.set_status(trace.Status(trace.StatusCode.ERROR, "Timeout"))
+            logger.warning(f"Pulsar publish timeout after 0.5s for topic {topic}")
+            return False
+            
+        except Exception as e:
+            # Record error metrics
+            duration = time.time() - start_time
+            get_event_count().labels(topic=topic, result="error").inc()
+            get_event_latency().labels(topic=topic).observe(duration)
+            
+            span.set_attribute("pulsar.success", False)
+            span.set_attribute("pulsar.error", str(e))
+            span.set_attribute("pulsar.duration", duration)
+            span.set_status(trace.Status(trace.StatusCode.ERROR, str(e)))
+            logger.error(f"Error publishing event to {topic}: {e}")
+            return False
 
 
 def _background_publish_task(topic: str, data: Dict[str, Any], schema: Optional[str] = None):
@@ -319,3 +348,42 @@ async def hybrid_publish(
         get_event_count().labels(topic=topic, result="error").inc()
         logger.error(f"Error in hybrid_publish to {topic}: {e}")
         return False
+
+
+async def publish_event_background(
+    background_tasks: BackgroundTasks,
+    topic: str, 
+    data: Dict[str, Any], 
+    schema: Optional[str] = None
+) -> None:
+    """
+    Publish an event to Pulsar in the background to avoid blocking HTTP responses.
+    
+    Args:
+        background_tasks: FastAPI BackgroundTasks instance
+        topic: The Pulsar topic to publish to
+        data: The data to publish
+        schema: Optional schema name for the message
+    """
+    def _background_publish():
+        """Background task to publish to Pulsar with OTel context."""
+        # Create a new event loop for the background task
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        try:
+            # Run the publish with proper tracing
+            with trace.get_tracer(__name__).start_as_current_span("pulsar_background_publish") as span:
+                span.set_attribute("pulsar.topic", topic)
+                span.set_attribute("pulsar.background", True)
+                
+                # Use the synchronous version to avoid event loop issues
+                result = loop.run_until_complete(publish_event(topic, data, schema))
+                span.set_attribute("pulsar.success", result)
+                
+        except Exception as e:
+            logger.error(f"Background Pulsar publish failed: {e}")
+        finally:
+            loop.close()
+    
+    background_tasks.add_task(_background_publish)
