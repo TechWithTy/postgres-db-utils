@@ -149,9 +149,23 @@ async def publish_event(topic: str, data: Dict[str, Any], schema: Optional[str] 
     if os.getenv("MINIMAL_MODE", "false").lower() == "true":
         logger.debug(f"Pulsar disabled (MINIMAL_MODE=true), skipping publish_event for {topic}")
         return True
+    
+    # Check if Pulsar is disabled via environment variable
+    if os.getenv("PULSAR_ENABLED", "true").lower() == "false":
+        logger.debug(f"Pulsar disabled (PULSAR_ENABLED=false), skipping publish_event for {topic}")
+        return True
+    
     # Start timing the publishing operation
     start_time = time.time()
-    client = get_pulsar_client()
+    
+    try:
+        client = get_pulsar_client()
+        if client is None:
+            logger.warning(f"Pulsar client not available, skipping publish_event for {topic}")
+            return True
+    except Exception as e:
+        logger.warning(f"Failed to get Pulsar client, skipping publish_event for {topic}: {e}")
+        return True
     
     # Add OTel tracing for Pulsar operations
     with trace.get_tracer(__name__).start_as_current_span("pulsar_publish_event") as span:
