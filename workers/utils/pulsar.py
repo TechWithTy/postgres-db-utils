@@ -141,6 +141,15 @@ async def publish_event(topic: str, data: Dict[str, Any], schema: Optional[str] 
     Returns:
         bool: True if the message was successfully published
     """
+    # Skip publishing if external managed services or minimal mode
+    import os
+    if os.getenv("USE_MANAGED_SERVICES", "false").lower() == "true":
+        logger.debug(f"Pulsar disabled (USE_MANAGED_SERVICES=true), skipping publish_event for {topic}")
+        return True
+    if os.getenv("MINIMAL_MODE", "false").lower() == "true":
+        logger.debug(f"Pulsar disabled (MINIMAL_MODE=true), skipping publish_event for {topic}")
+        return True
+    # Start timing the publishing operation
     start_time = time.time()
     client = get_pulsar_client()
     
