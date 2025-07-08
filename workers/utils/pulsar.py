@@ -106,6 +106,16 @@ async def hybrid_publish(
     """
     Publish a message to both Valkey pub/sub and Pulsar topic for dual-consumer scenarios.
     """
+    # Check if Pulsar is disabled for external services
+    import os
+    if os.getenv("USE_MANAGED_SERVICES", "false").lower() == "true":
+        logger.debug(f"Pulsar disabled (USE_MANAGED_SERVICES=true), skipping publish to {topic}")
+        return
+    
+    if os.getenv("MINIMAL_MODE", "false").lower() == "true":
+        logger.debug(f"Pulsar disabled (MINIMAL_MODE=true), skipping publish to {topic}")
+        return
+    
     valkey_client = ValkeyClient()
     pulsar_client = PulsarClient()
     try:
@@ -282,6 +292,16 @@ async def hybrid_publish(
     Returns:
         bool: True if the publish operation was initiated successfully
     """
+    # Check if Pulsar is disabled for external services
+    import os
+    if os.getenv("USE_MANAGED_SERVICES", "false").lower() == "true":
+        logger.debug(f"Pulsar disabled (USE_MANAGED_SERVICES=true), skipping publish to {topic}")
+        return True
+    
+    if os.getenv("MINIMAL_MODE", "false").lower() == "true":
+        logger.debug(f"Pulsar disabled (MINIMAL_MODE=true), skipping publish to {topic}")
+        return True
+    
     try:
         # Try a quick non-blocking publish first
         try:
