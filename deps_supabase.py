@@ -3,7 +3,7 @@ from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer
-from app.core.third_party_integrations.supabase_home.client import get_supabase_client
+from app.core.third_party_integrations.supabase_home.init import get_supabase_client
 
 from app.core.config import settings
 
@@ -23,10 +23,10 @@ async def get_current_supabase_user(authorization: str = Depends(security)) -> d
     """
     Validates JWT and returns user payload using Supabase auth
     """
-    from app.core.third_party_integrations.supabase_home.client import get_supabase_client
-    from app.core.third_party_integrations.supabase_home.sdk.auth import SupabaseAuthService
+    from app.core.third_party_integrations.supabase_home.init import get_supabase_client
+    from app.core.third_party_integrations.supabase_home.auth import SupabaseAuthService
     client = await get_supabase_client()
-    service = SupabaseAuthService(client)
+    service = SupabaseAuthService()
     try:
         user = await service.get_user_by_token(authorization.credentials)
         if not user:
@@ -54,10 +54,10 @@ async def get_current_supabase_superuser(request: Request):
         )
     token = auth_header[7:]
     try:
-        from app.core.third_party_integrations.supabase_home.client import get_supabase_client
-        from app.core.third_party_integrations.supabase_home.sdk.auth import SupabaseAuthService
+        from app.core.third_party_integrations.supabase_home.init import get_supabase_client
+        from app.core.third_party_integrations.supabase_home.auth import SupabaseAuthService
         client = await get_supabase_client()
-        service = SupabaseAuthService(client)
+        service = SupabaseAuthService()
         user_info = await service.get_user_by_token(token)
         user = user_info.get("user", user_info)
         meta = user.get("user_metadata", {})

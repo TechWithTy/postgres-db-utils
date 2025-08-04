@@ -5,7 +5,13 @@ from typing import Any
 
 from pydantic import BaseModel, Field, validator
 
-from app.models._data.user.billing.credit_models import CreditType
+# Simple credit type enum for worker system
+class CreditType(str, Enum):
+    """Types of credits that can be consumed by tasks."""
+    AI = "ai"
+    COMPUTE = "compute" 
+    STORAGE = "storage"
+    API = "api"
 
 
 class TaskPriority(str, Enum):
