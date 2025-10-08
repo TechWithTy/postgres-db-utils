@@ -10,12 +10,12 @@ api_key_scheme = APIKeyHeader(name="X-API-KEY", auto_error=False)
 
 from app.core.config import settings
 from app.core.db_utils.encryption import DataEncryptor
-from app.core.redis.rate_limit import (
+from app.core.valkey_core.limiting.rate_limit import (
     get_remaining_limit,
     increment_rate_limit,
     service_rate_limit,
 )
-from app.core.third_party_integrations.supabase_home.sdk.auth import SupabaseAuthService
+from app.core.third_party_integrations.supabase_home.auth import SupabaseAuthService
 
 # Initialize encryptor - handles both encryption and password hashing
 encryptor = DataEncryptor()
@@ -65,7 +65,7 @@ def get_password_hash(password: str) -> str:
 
 
 # --- Unified Auth Dependency ---
-from app.core.third_party_integrations.supabase_home.app import get_supabase_client
+from app.core.third_party_integrations.supabase_home.init import get_supabase_client
 
 async def get_auth_service():
     client = await get_supabase_client()
