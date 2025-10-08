@@ -12,6 +12,9 @@ class CreditType(str, Enum):
     COMPUTE = "compute" 
     STORAGE = "storage"
     API = "api"
+    # Legacy credit types for compatibility with existing credit models
+    LEADS = "leads"
+    SKIPTRACE = "skip_trace"
 
 
 class TaskPriority(str, Enum):

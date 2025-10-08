@@ -8,7 +8,7 @@ import time
 
 from fastapi import HTTPException, status
 
-from app.core.redis import client
+from app.core.valkey_core import client
 
 # Brute-force protection settings
 MAX_ATTEMPTS = 5

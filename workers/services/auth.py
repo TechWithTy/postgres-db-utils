@@ -2,7 +2,7 @@
 from typing import Any
 
 from gotrue.errors import AuthApiError
-from supabase_py_async import AsyncClient
+from supabase import AsyncClient
 
 from app.logging_config import get_logger
 
