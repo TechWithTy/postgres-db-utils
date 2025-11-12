@@ -3,12 +3,13 @@ from sqlalchemy.orm import Session
 
 from app.logging_config import get_logger
 from app.models import User
-from app.models._data.user.billing.credit_models import (
+from app.data.user.billing.credit_models import (
     AICredits,
-    CreditType,
     LeadCredits,
     SkipTraceCredits,
 )
+# Use workers CreditType instead of the global one
+from app.core.db_utils.workers.models.task import CreditType
 
 logger = get_logger(__name__)
 

@@ -5,13 +5,15 @@ from typing import Any
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from supabase_py_async import AsyncClient, create_client
+from supabase import AsyncClient, create_client
+from app.core.utils.sensitive import load_environment_files
 
 from app.core.db_utils.workers.services.auth import AuthError, SupabaseAuthService
 from app.logging_config import get_logger
 
 logger = get_logger(__name__)
 
+load_environment_files()
 
 @lru_cache
 def get_supabase_client() -> AsyncClient:

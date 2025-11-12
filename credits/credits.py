@@ -13,9 +13,10 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
 from app.core.config import settings
-from app.models._data.user.billing.credit_models import AICredits, LeadCredits, SkipTraceCredits, CreditType
+from app.data.user.billing.credit_models import AICredits, LeadCredits, SkipTraceCredits
+from app.data.user.admin.credit import CreditType
 from app.models import User
-from app.core.third_party_integrations.supabase_home.app import SupabaseClient
+from app.core.third_party_integrations.supabase_home.client import SupabaseClient
 
 
 async def call_function_with_credits(
